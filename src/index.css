@@ -1,0 +1,3654 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* A touch screen with no keyboard in sight. An iPad with one attached still
+   reports a coarse pointer, so shortcut hints use this rather than
+   pointer-coarse: [data-keys] is set once a modifier key proves a keyboard. */
+@custom-variant touch-only {
+  @media (pointer: coarse) {
+    &:where(:root:not([data-keys]) *) {
+      @slot;
+    }
+  }
+}
+
+/* A phone, upright or on its side: the library and Settings take the whole
+   screen, and a title stands over the library rather than a bar across it.
+   On its side an iPhone is wider than `sm`, but 400-odd points of height
+   leave no room for a bar of the wider screens' kind. */
+@custom-variant phone {
+  @media (max-width: 639px), (pointer: coarse) and (max-height: 500px) {
+    @slot;
+  }
+}
+
+@theme {
+  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --color-paper: #ffffff;
+  --color-shell: #fafaf8;
+  --color-ink: #1a1a1a;
+  --color-muted: #6b6b6b;
+  --color-line: #e8e8e8;
+  --color-faint: #bdbdb8;
+  --color-accent: #4a7a8c;
+  --color-item-active: #efefeb;
+  --color-item-hover: #f2f2ee;
+  --color-highlight: #fbe7a1;
+
+  /* Nib Plus's own blue, from its badge: the upgrade popup and its welcome. */
+  --color-plus: #184476;
+  --color-plus-wash: #eef4fb;
+  --color-plus-ink: #184476;
+}
+
+:root {
+  color-scheme: light;
+}
+
+/* Outside @layer so it beats the theme layer. */
+.dark {
+  color-scheme: dark;
+  --color-paper: #111214;
+  --color-shell: #0e0f11;
+  --color-ink: #e6e6e6;
+  --color-muted: #8b8b90;
+  --color-line: #232529;
+  --color-faint: #55575c;
+  --color-item-active: #1a1c1f;
+  --color-item-hover: #17181b;
+  /* Dark amber: light ink still reads on it, where a pale yellow would glare. */
+  --color-highlight: #5b4a14;
+  --color-plus: #2f6db3;
+  --color-plus-wash: #142131;
+  --color-plus-ink: #9cc3f0;
+}
+
+/* The named themes (lib/theme NAMED), from Blender's theme directory: each
+   theme's text editor gives the paper, ink and accent, and the lines, hover
+   and highlight are worked out from those. After .dark, so a dark theme's
+   colours win over the plain Dark ones. Every ink is 7:1 or more on its paper,
+   and every muted 4.5:1. */
+[data-theme='midnight-blue'] {
+  --color-paper: #121a22;
+  --color-shell: #1c232d;
+  --color-ink: #e6e6e6;
+  --color-muted: #8a95a8;
+  --color-accent: #5f8ecb;
+  --color-line: #2b323a;
+  --color-faint: #565b61;
+  --color-item-active: #2c333c;
+  --color-item-hover: #262d36;
+  --color-highlight: #2d435d;
+}
+
+[data-theme='gruvbox-dark'] {
+  --color-paper: #282828;
+  --color-shell: #3c3836;
+  --color-ink: #ebdbb2;
+  --color-muted: #a89984;
+  --color-accent: #d65d0e;
+  --color-line: #3f3d39;
+  --color-faint: #666154;
+  --color-item-active: #4a4540;
+  --color-item-hover: #45403c;
+  --color-highlight: #653b1f;
+}
+
+[data-theme='green-olive'] {
+  --color-paper: #252525;
+  --color-shell: #1e1e1e;
+  --color-ink: #bfdce5;
+  --color-muted: #8f8f8f;
+  --color-accent: #8fb02a;
+  --color-line: #373b3c;
+  --color-faint: #566062;
+  --color-item-active: #2b2d2e;
+  --color-item-hover: #262828;
+  --color-highlight: #4a5627;
+}
+
+[data-theme='clean-blue'] {
+  --color-paper: #f4f6f9;
+  --color-shell: #e8ebf0;
+  --color-ink: #24282d;
+  --color-muted: #5b636d;
+  --color-accent: #3a78fe;
+  --color-line: #dfe1e5;
+  --color-faint: #b6b8bc;
+  --color-item-active: #dadde2;
+  --color-item-hover: #e0e3e8;
+  --color-highlight: #bcd0fb;
+}
+
+[data-theme='gruvbox-light'] {
+  --color-paper: #fbf1c7;
+  --color-shell: #ebdbb2;
+  --color-ink: #3c3836;
+  --color-muted: #665c54;
+  --color-accent: #af3a03;
+  --color-line: #e8dfb9;
+  --color-faint: #c2ba9c;
+  --color-item-active: #dfd0a9;
+  --color-item-hover: #e4d4ad;
+  --color-highlight: #e4ba8c;
+}
+
+[data-theme='pastel-pink'] {
+  --color-paper: #fbe1ea;
+  --color-shell: #f7c4d7;
+  --color-ink: #5c0a29;
+  --color-muted: #8f3d5c;
+  --color-accent: #b63a69;
+  --color-line: #ebccd7;
+  --color-faint: #cba1b0;
+  --color-item-active: #ecb7cb;
+  --color-item-hover: #f1bdd0;
+  --color-highlight: #e6afc3;
+}
+
+[data-theme='cream-soda'] {
+  --color-paper: #ece6da;
+  --color-shell: #e0d9ca;
+  --color-ink: #4a443c;
+  --color-muted: #665d4e;
+  --color-accent: #3d87c0;
+  --color-line: #dcd6ca;
+  --color-faint: #bbb5ab;
+  --color-item-active: #d6cfc0;
+  --color-item-hover: #dad3c4;
+  --color-highlight: #b8cad2;
+}
+
+/* Winter, Christmas Day's present (lib/theme): frost, and a holly berry for the accent. */
+[data-theme='winter'] {
+  --color-paper: #eef3f7;
+  --color-shell: #e1e9f0;
+  --color-ink: #24323f;
+  --color-muted: #566676;
+  --color-accent: #b13d36;
+  --color-line: #d5dfe8;
+  --color-faint: #a7b5c2;
+  --color-item-active: #d3dee8;
+  --color-item-hover: #dae3ec;
+  --color-highlight: #f0cfcb;
+}
+
+[data-theme='purple-green'] {
+  --color-paper: #252525;
+  --color-shell: #1b1b1b;
+  --color-ink: #e7e7e7;
+  --color-muted: #8f8f8f;
+  --color-accent: #a7ff00;
+  --color-line: #3c3c3c;
+  --color-faint: #636363;
+  --color-item-active: #2b2b2b;
+  --color-item-hover: #252525;
+  --color-highlight: #453a68;
+}
+
+[data-theme='alien-pink'] {
+  --color-paper: #0a1722;
+  --color-shell: #121f2c;
+  --color-ink: #e5e5e5;
+  --color-muted: #8d9aa8;
+  --color-accent: #ff5a9f;
+  --color-line: #243039;
+  --color-faint: #505960;
+  --color-item-active: #232f3b;
+  --color-item-hover: #1d2935;
+  --color-highlight: #602e4e;
+}
+
+[data-theme='drcl'] {
+  --color-paper: #282a36;
+  --color-shell: #303042;
+  --color-ink: #e8eaf6;
+  --color-muted: #8f93ad;
+  --color-accent: #50fa7b;
+  --color-line: #3f414d;
+  --color-faint: #656773;
+  --color-item-active: #3f3f50;
+  --color-item-hover: #39394b;
+  --color-highlight: #453e5d;
+}
+
+/* Nib Plus, in its badge's colours (assets/plus-badge.png): its graphite
+   for the paper, its nib's white for the ink, and the middle of the glow
+   round it, between its blue and its violet, for the accent. */
+[data-theme='nib-plus'] {
+  --color-paper: #18181c;
+  --color-shell: #222227;
+  --color-ink: #f2f2f7;
+  --color-muted: #9a9cab;
+  --color-accent: #8097fc;
+  --color-line: #2e2e36;
+  --color-faint: #5c5e69;
+  --color-item-active: #2a2a33;
+  --color-item-hover: #23232a;
+  --color-highlight: #3d3566;
+}
+
+/* A theme of one's own (lib/ownTheme): its colours, worked out in script,
+   as --own-* on <html> (lib/theme applyTheme). */
+[data-theme='custom'] {
+  --color-paper: var(--own-paper);
+  --color-shell: var(--own-shell);
+  --color-ink: var(--own-ink);
+  --color-muted: var(--own-muted);
+  --color-accent: var(--own-accent);
+  --color-line: var(--own-line);
+  --color-faint: var(--own-faint);
+  --color-item-active: var(--own-item-active);
+  --color-item-hover: var(--own-item-hover);
+  --color-highlight: var(--own-highlight);
+}
+
+.nib-editor {
+  outline: none;
+  counter-reset: footnote;
+}
+
+/* iOS's Larger Text is for Nib's own words (lib/textSize): the writing has
+   Customize's size, and a field is 16 points on touch already. */
+.nib-editor,
+input,
+textarea,
+select {
+  -webkit-text-size-adjust: 100%;
+}
+
+.nib-footnote {
+  counter-increment: footnote;
+  cursor: help;
+  color: var(--color-muted);
+  font-size: 0.7em;
+  vertical-align: super;
+  line-height: 0;
+  padding-left: 1px;
+}
+
+.nib-footnote::before {
+  content: counter(footnote);
+}
+
+/* Apple's minimum tap target is 44pt. A small control keeps its look and grows
+   an invisible hit area instead, so nothing around it moves. In the components
+   layer so a positioning utility on the same element still wins. */
+@layer components {
+  @media (pointer: coarse) {
+    .nib-tap {
+      position: relative;
+    }
+
+    .nib-tap::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
+/* Hover-only reveal is unreachable on touch, so show the rail outright. */
+@media (pointer: coarse) {
+  .nib-rail {
+    opacity: 1;
+  }
+}
+
+/* Return starts the very next line, in pages as in notes, as in Notes.app:
+   a gap after every paragraph read as a blank line typed between them. */
+.nib-editor p {
+  margin: 0;
+}
+
+/* A heading still opens its section with room above it. */
+.nib-editor-page :not(h1, h2, h3, h4, h5, h6) + :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 26px;
+}
+
+.nib-editor-page h1 {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  margin: 0 0 18px;
+}
+
+.nib-editor-page h2 {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  margin: 0 0 12px;
+}
+
+.nib-editor-page h3 {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0 0 10px;
+}
+
+.nib-editor-page :is(h4, h5, h6) {
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0 0 8px;
+}
+
+.nib-editor-page h4 {
+  font-size: 17px;
+}
+
+/* No smaller than this: see the touch-screen rule below. The last is told apart by its colour. */
+.nib-editor-page :is(h5, h6) {
+  font-size: 16px;
+}
+
+.nib-editor-page h6 {
+  color: var(--color-muted);
+}
+
+.nib-editor a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A link to another note: the accent, as a link, but dotted, since it opens
+   in Nib rather than the browser. Gone once its note is in the trash. */
+.nib-editor .nib-note-link {
+  color: var(--color-accent);
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  /* Over the gap between its lines when it wraps, at the loosest line spacing: a tap there would select it. No effect on the lines themselves. */
+  padding-block: 0.33em;
+}
+
+/* The line a link to it has just opened at (editor/arrive): shown for a moment, then as it was. */
+.nib-editor .nib-arrived {
+  border-radius: 3px;
+  background: var(--color-highlight);
+  box-shadow: 0 0 0 4px var(--color-highlight);
+  transition: none;
+}
+
+.nib-editor .nib-note-link[data-missing] {
+  color: var(--color-faint);
+  text-decoration: line-through;
+}
+
+.nib-editor .nib-note-link.ProseMirror-selectednode {
+  border-radius: 3px;
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.nib-editor u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.nib-editor mark {
+  background: var(--color-highlight);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* A note to self (editor/NoteToSelf): the words keep their colour, unlike a
+   link's, and the line is the accent's, heavier and lower than underlined
+   text's. Tapped, it opens the note. */
+.nib-editor .nib-note-to-self {
+  text-decoration: underline var(--color-accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+/* The sentence being read aloud (editor/reading): a wash of the accent, so
+   it isn't taken for highlighted text. */
+.nib-reading {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  border-radius: 2px;
+}
+
+/* Find (editor/FindBar): every match in the highlight colour, and the one
+   you're on ringed in the accent, which shows on every theme. */
+.ProseMirror-search-match,
+.ProseMirror-active-search-match {
+  background: var(--color-highlight);
+  border-radius: 2px;
+}
+
+.ProseMirror-active-search-match {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+/* The style check (editor/styleCheck): a suggestion, so quieter than a
+   spelling squiggle, in the accent so it can't be mistaken for underlined
+   text. A long sentence gets a faint wash instead: a whole sentence of
+   dots would shout. */
+.nib-style {
+  text-decoration: underline dotted color-mix(in srgb, var(--color-accent) 70%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+
+.nib-style-long {
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  border-radius: 2px;
+}
+
+/* On dark paper the same tint all but disappears. */
+.dark .nib-style-long {
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+/* Only the wash, unless another rule flags the same words. */
+.nib-style-long:not(.nib-style-filler, .nib-style-adverb, .nib-style-passive, .nib-style-cliche, .nib-style-repeat) {
+  text-decoration: none;
+}
+
+/* Unstyled, an image renders at its intrinsic size and blows straight through
+   the 680px text column. `block` also stops the inline atom sitting on the
+   text baseline with a descender gap under it. */
+.nib-editor img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+  border-radius: 4px;
+}
+
+/* A picture the writer has sized (lib/image IMAGE_SIZES): a share of the
+   text's width, whatever its own, so a small one can be made larger too. */
+.nib-editor img[data-size='small'] {
+  width: 33%;
+}
+
+.nib-editor img[data-size='medium'] {
+  width: 50%;
+}
+
+.nib-editor img[data-size='large'] {
+  width: 75%;
+}
+
+.nib-editor img[data-size='full'] {
+  width: 100%;
+}
+
+/* A picture is a block, which its line's alignment (editor/extensions
+   BlockAlignment) doesn't move as it moves words: its margins do. */
+.nib-editor [style*='text-align: center'] > img {
+  margin-inline: auto;
+}
+
+.nib-editor [style*='text-align: right'] > img {
+  margin-inline-start: auto;
+}
+
+/* A sketch is dark ink on nothing. In the dark theme it is turned to light ink,
+   hue kept, so it reads on the page; photographs are left alone. */
+.dark .nib-editor img[data-sketch] {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.nib-editor img.ProseMirror-selectednode {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.nib-editor code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-item-hover);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.nib-editor pre {
+  margin: 0;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: var(--color-item-hover);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.55;
+}
+
+/* The inline-code chip styling must not leak into a fenced block. */
+.nib-editor pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
+.nib-editor-page pre {
+  margin: 8px 0;
+}
+
+/* Floated, so the first line wraps round it and it never lies over a word. */
+.nib-code-language {
+  position: relative;
+  float: right;
+  margin-left: 12px;
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  transition: opacity 120ms ease;
+}
+
+/* Laid over the name, and larger than it for a finger. 16px, or iOS zooms the page into it. */
+.nib-code-language select {
+  position: absolute;
+  inset: -8px;
+  opacity: 0;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.ProseMirror[contenteditable='false'] .nib-code-language select {
+  pointer-events: none;
+}
+
+/* A block with no language is usually just text set in mono: nothing in its corner till it's wanted. */
+.nib-code-language[data-plain] {
+  opacity: 0;
+}
+
+.nib-editor pre:hover .nib-code-language[data-plain],
+.nib-code-language[data-plain]:focus-within {
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .nib-code-language[data-plain] {
+    opacity: 1;
+  }
+}
+
+.ProseMirror[contenteditable='false'] .nib-code-language[data-plain] {
+  display: none;
+}
+
+/* Each a hue taken toward the theme's ink, as a callout's are: as much colour as still reads at 4.5:1 on that theme's code background. */
+:root {
+  --code-hue: 60%;
+}
+
+[data-theme='winter'] {
+  --code-hue: 55%;
+}
+
+[data-theme='gruvbox-dark'],
+[data-theme='gruvbox-light'],
+[data-theme='pastel-pink'] {
+  --code-hue: 40%;
+}
+
+[data-theme='cream-soda'] {
+  --code-hue: 30%;
+}
+
+.nib-code-comment {
+  color: color-mix(in srgb, var(--color-muted) 70%, var(--color-ink));
+}
+
+.nib-code-keyword {
+  color: color-mix(in srgb, #8b5cf6 var(--code-hue), var(--color-ink));
+}
+
+.nib-code-string {
+  color: color-mix(in srgb, #2e9e4f var(--code-hue), var(--color-ink));
+}
+
+.nib-code-number {
+  color: color-mix(in srgb, #d97706 var(--code-hue), var(--color-ink));
+}
+
+.nib-code-name {
+  color: color-mix(in srgb, #2f7fd1 var(--code-hue), var(--color-ink));
+}
+
+/* Tables, on pages. Wider than the column, one scrolls sideways (TipTap's
+   wrapper) rather than squeezing its text. */
+.nib-editor .tableWrapper {
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+/* `width`, not `min-width`: TipTap sets the table's min-width inline. */
+.nib-editor table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.nib-editor th,
+.nib-editor td {
+  position: relative;
+  border: 1px solid var(--color-line);
+  padding: 6px 10px;
+  min-width: 80px;
+  text-align: left;
+  vertical-align: top;
+  /* A word too long for its column, often a pasted address, breaks: kept
+     whole, it held its column open and starved the others. */
+  overflow-wrap: anywhere;
+}
+
+.nib-editor th {
+  background: var(--color-item-hover);
+  font-weight: 600;
+}
+
+.nib-editor th > p,
+.nib-editor td > p {
+  margin: 0;
+}
+
+/* Cells picked out by dragging across them. */
+.nib-editor .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+  pointer-events: none;
+}
+
+.nib-editor blockquote {
+  margin: 0;
+  border-inline-start: 1px solid var(--color-line);
+  padding-inline-start: 14px;
+}
+
+/* An attached file (editor/attachmentCard): a card with its name, and its kind
+   and size under it, each on one line (a long name is cut short, not
+   wrapped); a PDF's first page before them; and what opens or plays it after. */
+.nib-editor .nib-attachment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  cursor: default;
+}
+
+.nib-editor .nib-attachment-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nib-editor .nib-attachment-name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nib-editor .nib-attachment-about {
+  font-size: 0.8em;
+  color: var(--color-muted);
+}
+
+/* A page, not a picture of the note's: small, and with an edge, since most pages are white. */
+.nib-editor img.nib-attachment-page {
+  width: auto;
+  max-width: 48px;
+  height: 48px;
+  margin: 0;
+  border: 1px solid var(--color-line);
+  border-radius: 3px;
+}
+
+.nib-editor .nib-attachment-open {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.nib-editor .nib-attachment-open:disabled {
+  color: var(--color-faint);
+  cursor: default;
+}
+
+@media (pointer: coarse) {
+  .nib-editor .nib-attachment-open {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Under the name, the card's whole width. */
+.nib-editor .nib-attachment-player {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 40px;
+}
+
+/* Shaded as selected only with the cursor in the text: a note that begins with one opens with it selected, and nothing has been chosen yet. */
+.nib-editor.ProseMirror-focused .nib-attachment.ProseMirror-selectednode {
+  background: var(--color-item-active);
+}
+
+/* A box of one of eight kinds. Its colour is mixed toward the theme's own ink,
+   so it reads on every theme; the words on it stay the ink itself. */
+.nib-callout {
+  --kind-ink: color-mix(in srgb, var(--kind) 60%, var(--color-ink));
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  column-gap: 8px;
+  margin: 8px 0;
+  padding: 10px 8px 10px 10px;
+  border-radius: 8px;
+  border-inline-start: 3px solid var(--kind-ink);
+  background: color-mix(in srgb, var(--kind) 10%, transparent);
+}
+
+.nib-callout[data-callout='note'] { --kind: #64748b; }
+.nib-callout[data-callout='info'] { --kind: #2f7fd1; }
+.nib-callout[data-callout='tip'] { --kind: #0d9488; }
+.nib-callout[data-callout='success'] { --kind: #2e9e4f; }
+.nib-callout[data-callout='question'] { --kind: #8b5cf6; }
+.nib-callout[data-callout='important'] { --kind: #c026d3; }
+.nib-callout[data-callout='warning'] { --kind: #d97706; }
+.nib-callout[data-callout='caution'] { --kind: #dc2626; }
+
+.nib-callout svg,
+.nib-fold svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nib-callout-kind,
+.nib-callout-fold {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.nib-callout-kind {
+  color: var(--kind-ink);
+}
+
+/* Laid over the icon, and larger than it for a finger. 16px, or iOS zooms the page into it. */
+.nib-callout-kind select {
+  position: absolute;
+  inset: -8px;
+  opacity: 0;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.ProseMirror[contenteditable='false'] .nib-callout-kind select {
+  pointer-events: none;
+}
+
+.nib-callout-fold {
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.nib-callout-fold::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.nib-callout[data-collapsed] .nib-callout-fold {
+  transform: rotate(-90deg);
+}
+
+.nib-callout[data-collapsed] .nib-callout-body > :not(:first-child) {
+  display: none;
+}
+
+/* A formula (editor/Math): drawn by KaTeX, with a field for its LaTeX while
+   it's being changed. */
+.nib-math {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.nib-math[data-block] {
+  display: block;
+  margin: 0 0 0.9em;
+  padding: 6px 0;
+  text-align: center;
+  overflow-x: auto;
+}
+
+.nib-math[data-empty] .nib-math-drawn {
+  color: var(--color-faint);
+}
+
+.nib-math.ProseMirror-selectednode,
+.nib-math[data-editing] {
+  background: var(--color-item-active);
+}
+
+/* In a line the field stands in for the drawing; on its own lines the drawing stays over it, redrawn as it's typed. */
+.nib-math:not([data-block])[data-editing] .nib-math-drawn {
+  display: none;
+}
+
+.nib-math-source {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  color: var(--color-ink);
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  outline: none;
+  max-width: 100%;
+}
+
+textarea.nib-math-source {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 8px;
+  resize: none;
+  text-align: start;
+}
+
+.nib-math-source[hidden] {
+  display: none;
+}
+
+/* 16px, or iOS zooms the page into the field. */
+@media (pointer: coarse) {
+  .nib-math-source {
+    font-size: 16px;
+  }
+}
+
+/* Folding (editor/fold): a heading puts its section out of sight, and a line
+   of a list what is under it. The control is in the margin before it, there on
+   a touch screen and under the pointer elsewhere, and always while something
+   is put away. */
+.nib-editor-page :is(h1, h2, h3, h4, h5, h6) {
+  position: relative;
+}
+
+.nib-fold {
+  position: absolute;
+  top: 0;
+  inset-inline-start: -26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 1.3em;
+  color: var(--color-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.nib-fold svg {
+  transition: transform 120ms ease;
+}
+
+/* Larger than it looks, for a finger: above, below and out into the margin, and
+   not over the words, where a tap is for the caret. */
+.nib-fold::after {
+  content: '';
+  position: absolute;
+  inset-block: -8px;
+  inset-inline: -4px 0;
+}
+
+.nib-editor-page :is(h1, h2, h3, h4, h5, h6):hover > .nib-fold,
+.nib-editor li > p:hover > .nib-fold,
+.nib-editor li > div > p:hover > .nib-fold,
+.nib-fold:focus-visible,
+.nib-fold[aria-expanded='false'] {
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .nib-fold {
+    opacity: 1;
+  }
+}
+
+/* The arrow turns, and not the control: its reach for a finger would turn with
+   it, up over the control of the line above. */
+.nib-fold[aria-expanded='false'] svg {
+  transform: rotate(-90deg);
+}
+
+.nib-fold[aria-expanded='false']:dir(rtl) svg {
+  transform: rotate(90deg);
+}
+
+/* A list's line: before its bullet or number, which are outside the line's own
+   box, or before its checkbox, which is at the start of it. Out to the bullet
+   for the pointer, and not over the box. */
+.nib-editor li {
+  position: relative;
+}
+
+.nib-editor li > p > .nib-fold,
+.nib-editor li > div > p > .nib-fold {
+  inset-inline-start: -44px;
+  width: 24px;
+  height: 1.7em;
+}
+
+/* No taller than its line: the lines of a list touch, and each control's reach
+   would be over the next one's. */
+.nib-editor li > p > .nib-fold::after {
+  inset-block: 0;
+  inset-inline: -4px -20px;
+}
+
+.nib-editor li > div > p > .nib-fold::after {
+  inset-block: 0;
+  inset-inline: -4px -2px;
+}
+
+.nib-editor ul[data-type='taskList'] > li > div > p > .nib-fold {
+  inset-inline-start: -26px;
+}
+
+/* A number is wider than a bullet, and hangs further out: the control goes out past it, and is a little smaller. */
+.nib-editor ol > li > p > .nib-fold {
+  inset-inline-start: -50px;
+  width: 22px;
+}
+
+.nib-editor ol > li > p > .nib-fold svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* That there is more under it. */
+.nib-editor-page :is(h1, h2, h3, h4, h5, h6)[data-folded]::after,
+.nib-editor li[data-folded] > p:first-child::after,
+.nib-editor li[data-folded] > div > p:first-child::after {
+  content: ' …';
+  color: var(--color-faint);
+  font-weight: 400;
+}
+
+.nib-folded-away {
+  display: none;
+}
+
+.nib-editor ul {
+  margin: 0;
+  padding-inline-start: 20px;
+  list-style: disc;
+}
+
+.nib-editor ol {
+  margin: 0;
+  padding-inline-start: 20px;
+  list-style: decimal;
+}
+
+/* A list or a quotation whose first line is written from the right sits on the right, with its marker. */
+.nib-editor :is(ul, ol):has(> li:first-child p:dir(rtl)),
+.nib-editor blockquote:has(> p:first-child:dir(rtl)) {
+  direction: rtl;
+}
+
+/* A line from the right in a table cell, which keeps to the left otherwise. */
+.nib-editor :is(th, td) p:dir(rtl) {
+  text-align: right;
+}
+
+/* Checklists carry their own marker, so drop the list bullet. */
+.nib-editor ul[data-type='taskList'] {
+  padding-inline-start: 2px;
+  list-style: none;
+}
+
+.nib-editor ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* The label is exactly one line of the text beside it (the zero-width
+   character makes that line), and the box is centred in it. A fixed offset
+   can't do this: each platform's checkbox has its own size and margins, and
+   on the Mac it sat visibly below its text. (`height: 1lh` would say it in
+   one line, but iOS 15's WebKit doesn't have it.) */
+.nib-editor ul[data-type='taskList'] li > label {
+  flex: none;
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+
+.nib-editor ul[data-type='taskList'] li > label::before {
+  content: '\200b';
+}
+
+.nib-editor ul[data-type='taskList'] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nib-editor ul[data-type='taskList'] input[type='checkbox'] {
+  margin: 0;
+  accent-color: var(--color-muted);
+  cursor: pointer;
+}
+
+/* Ticked, the line is drawn in as the text greys, rather than both landing in
+   one frame: the strike is always there, in no colour until it's done. The
+   checkbox updates in place (TipTap's task item), so these transitions run on
+   a tick and never when a document opens. */
+.nib-editor ul[data-type='taskList'] li > div {
+  text-decoration: line-through transparent;
+  transition:
+    color calc(220ms * var(--m)) ease,
+    text-decoration-color calc(220ms * var(--m)) ease;
+}
+
+.nib-editor ul[data-type='taskList'] li[data-checked='true'] > div {
+  color: var(--color-muted);
+  text-decoration-color: var(--color-muted);
+}
+
+.nib-editor-page ul,
+.nib-editor-page ol,
+.nib-editor-page blockquote {
+  margin: 0;
+}
+
+/* Paragraph spacing is for prose, not for rows inside a list. */
+.nib-editor li > p {
+  margin: 0;
+}
+
+.nib-editor ::selection {
+  background: rgb(74 122 140 / 0.18);
+}
+
+.nib-editor .is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-faint);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--color-ink);
+    background-color: var(--color-paper);
+    caret-color: var(--color-accent);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Motion. Docs/Nib-animated.html is the spec; this is that pack ported onto
+   the real components.
+
+   `--m` scales every duration at once, so the whole system can be slowed to
+   study it or cut to nothing.
+   --------------------------------------------------------------------------- */
+:root {
+  --m: 1;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* A theme change: the whole page cross-fades, the old picture to the new (a
+   view transition, lib/useTheme's changeTheme), so the swap reads as a fade rather
+   than a flash. Not colour transitions on every element, as before: WebKit
+   holds back text that takes its colour from its parent while the parent's
+   colour is moving, so on iPhone and the Mac the old theme's text sat on the
+   new background till the transitions came off. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: calc(520ms * var(--m));
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The library (Library), the whole window over the text: it fades away when
+   a document opens, swelling a little as if passed through, and back when
+   it's asked for. */
+.nib-library {
+  transition:
+    opacity calc(220ms * var(--m)) ease,
+    transform calc(320ms * var(--m)) var(--ease),
+    visibility 0s linear calc(220ms * var(--m));
+}
+
+.nib-library[data-open='true'] {
+  transition-delay: 0s;
+}
+
+.nib-library[data-open='false'] {
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(1.03);
+}
+
+/* ---------------------------------------------------------------------------
+   The library's own motion (Library, Places' PlaceChips, cardDrag): springy
+   where something is picked up, dropped in or made, the pack's ease elsewhere.
+   --------------------------------------------------------------------------- */
+
+/* Cards rise in one after another, the first eight staggered. Once only
+   (data-arrived): a card moved in the DOM would otherwise rise again. */
+.nib-card:not([data-arrived]) {
+  animation: cardIn calc(380ms * var(--m)) var(--ease) calc(min(var(--i, 0), 8) * 45ms * var(--m)) backwards;
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
+/* Lifted under a pointer; pressed in under a finger, over the moment it
+   rests before the card comes up; faded where it was while it's carried. */
+.nib-card {
+  transition:
+    opacity calc(200ms * var(--m)) ease,
+    transform calc(400ms * var(--m)) var(--ease);
+}
+
+.nib-card > button:first-child {
+  transition: box-shadow calc(260ms * var(--m)) ease;
+}
+
+/* A card's pin and ×, unseen till the pointer's over the card, and what's in
+   use sliding back from the edge to make room for them as its title gives way
+   (components/Library's Card), all together. */
+.nib-card-tool {
+  transition:
+    translate calc(260ms * var(--m)) var(--ease),
+    opacity calc(200ms * var(--m)) ease;
+}
+
+.nib-card [data-title] {
+  transition: padding-right calc(260ms * var(--m)) var(--ease);
+}
+
+@media (hover: hover) {
+  .nib-card:hover {
+    transform: translateY(-2px);
+  }
+
+  .nib-card:hover > button:first-child {
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.07);
+  }
+}
+
+.nib-card:has(> button:first-child:active) {
+  transform: scale(0.97);
+}
+
+.nib-card[data-held] {
+  opacity: 0.35;
+  transform: scale(0.95);
+}
+
+/* A card's pin (Library's PinIcon): leaning, unpinned; stood up and pressed
+   in, its point shorter for being in the card, pinned. */
+.nib-pin > svg {
+  transform: rotate(45deg);
+}
+
+.nib-pin[data-pinned] > svg {
+  transform: none;
+}
+
+.nib-pin path:last-child {
+  transform-box: fill-box;
+  transform-origin: top;
+}
+
+/* Pinned (data-pinning, Library's Card): the pin is lifted and stood up, then
+   pressed in, its point going into the card and a ring going out round it,
+   while the card is lifted over the others as it glides to the top and
+   settles under the press. The card's own is the longest: its end takes
+   data-pinning off. */
+.nib-card[data-pinning='in'] {
+  animation: cardPinned calc(640ms * var(--m)) linear;
+}
+
+@keyframes cardPinned {
+  from {
+    z-index: 1;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  35% {
+    z-index: 1;
+    scale: 1.03;
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  60% {
+    z-index: 1;
+    scale: 0.985;
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  to {
+    z-index: 1;
+  }
+}
+
+.nib-card[data-pinning='in'] > button:first-child {
+  animation: cardPinnedShadow calc(640ms * var(--m)) var(--ease);
+}
+
+@keyframes cardPinnedShadow {
+  35% {
+    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.14);
+  }
+  60% {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  }
+}
+
+.nib-card[data-pinning='in'] .nib-pin > svg {
+  animation: pinIn calc(560ms * var(--m)) linear;
+}
+
+@keyframes pinIn {
+  from {
+    transform: translateY(0) rotate(45deg) scale(1);
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  40% {
+    transform: translateY(-6px) rotate(0deg) scale(1.45);
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  60% {
+    transform: translateY(1.5px) rotate(0deg) scale(1.12, 0.78);
+    animation-timing-function: ease-out;
+  }
+  80% {
+    transform: translateY(-0.5px) rotate(0deg) scale(0.96, 1.05);
+    animation-timing-function: ease-in-out;
+  }
+  to {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+}
+
+.nib-card[data-pinning='in'] .nib-pin path:first-child {
+  animation: pinFill calc(560ms * var(--m)) linear;
+}
+
+@keyframes pinFill {
+  from,
+  58% {
+    fill-opacity: 0;
+  }
+  64% {
+    fill-opacity: 1;
+  }
+}
+
+.nib-card[data-pinning='in'] .nib-pin path:last-child {
+  animation: pinPoint calc(560ms * var(--m)) linear;
+}
+
+@keyframes pinPoint {
+  from,
+  58% {
+    transform: scaleY(1.75);
+  }
+  64% {
+    transform: none;
+  }
+}
+
+/* The ring, round the point where it went in. */
+.nib-pin::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -6px 0 0 -10px;
+  border: 1.5px solid var(--color-accent);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nib-card[data-pinning='in'] .nib-pin::after {
+  animation: pinRing calc(300ms * var(--m)) var(--ease) calc(340ms * var(--m));
+}
+
+@keyframes pinRing {
+  from {
+    opacity: 1;
+    transform: scale(0.2);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+
+/* Unpinned, lighter: the pin springs out and leans back, emptied, and the
+   card is barely lifted as it glides to its place. */
+.nib-card[data-pinning='out'] {
+  animation: cardUnpinned calc(400ms * var(--m)) var(--ease);
+}
+
+@keyframes cardUnpinned {
+  from,
+  to {
+    z-index: 1;
+  }
+  40% {
+    z-index: 1;
+    scale: 1.015;
+  }
+}
+
+.nib-card[data-pinning='out'] .nib-pin > svg {
+  animation: pinOut calc(380ms * var(--m)) linear;
+}
+
+@keyframes pinOut {
+  from {
+    transform: translateY(0) rotate(0deg) scale(1);
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  45% {
+    transform: translateY(-5px) rotate(60deg) scale(1.25);
+    animation-timing-function: ease-in-out;
+  }
+  to {
+    transform: translateY(0) rotate(45deg) scale(1);
+  }
+}
+
+.nib-card[data-pinning='out'] .nib-pin path:first-child {
+  animation: pinEmpty calc(380ms * var(--m)) ease-out;
+}
+
+@keyframes pinEmpty {
+  from {
+    fill-opacity: 1;
+  }
+  40% {
+    fill-opacity: 0;
+  }
+}
+
+.nib-card[data-pinning='out'] .nib-pin path:last-child {
+  animation: pinPull calc(380ms * var(--m)) cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes pinPull {
+  from {
+    transform: scaleY(0.57);
+  }
+}
+
+/* A trashed card's copy, crumpled and tossed into Trash (Library's toss),
+   which jolts as it lands. */
+.nib-toss {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.25));
+}
+
+/* Crumpled paper: creases round it, and a little light on one side. */
+.nib-ball {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.5), transparent 48%),
+    conic-gradient(
+      from 25deg,
+      var(--color-paper),
+      var(--color-line) 14%,
+      var(--color-paper) 26%,
+      var(--color-faint) 40%,
+      var(--color-paper) 52%,
+      var(--color-line) 66%,
+      var(--color-paper) 78%,
+      var(--color-faint) 90%,
+      var(--color-paper)
+    );
+}
+
+.nib-bin[data-jolted] {
+  animation: binJolt calc(480ms * var(--m)) var(--ease);
+}
+
+@keyframes binJolt {
+  0% {
+    transform: none;
+  }
+  25% {
+    transform: scale(1.35) rotate(-6deg);
+  }
+  50% {
+    transform: scale(0.92) rotate(4deg);
+  }
+  75% {
+    transform: scale(1.06) rotate(-2deg);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* The trash (TrashList): its notes tumble in, as if fished out of it, one
+   after another, the first eight staggered and each a little askew. A note
+   deleted for good is cut into strips of paper (.nib-strip, on a layer over
+   the page) that fall away. */
+.nib-trash-row:not([data-arrived]) {
+  animation: trashIn calc(420ms * var(--m)) var(--ease) calc(min(var(--i, 0), 8) * 50ms * var(--m)) backwards;
+}
+
+.nib-trash-row:nth-child(even) {
+  --tilt: 3deg;
+}
+
+@keyframes trashIn {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) rotate(var(--tilt, -3deg));
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(2px) rotate(calc(var(--tilt, -3deg) * -0.3));
+  }
+}
+
+.nib-shreds {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.nib-strip {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  background: var(--color-paper);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* The copy carried: it lifts in tilted, straightens and shrinks over a chip
+   that would take it, and once let go flies into the chip, or back to its
+   card (cardDrag's LANDING_MS). */
+.nib-held {
+  transform: rotate(-3deg);
+  animation: heldIn calc(240ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  transition: transform calc(220ms * var(--m)) var(--ease);
+}
+
+.nib-held[data-over] {
+  transform: scale(0.88);
+}
+
+.nib-held[data-landing] {
+  opacity: 0;
+  transition:
+    left calc(320ms * var(--m)) cubic-bezier(0.5, 0, 0.3, 1),
+    top calc(320ms * var(--m)) cubic-bezier(0.5, 0, 0.3, 1),
+    transform calc(320ms * var(--m)) cubic-bezier(0.5, 0, 0.3, 1),
+    opacity calc(200ms * var(--m)) ease calc(120ms * var(--m));
+}
+
+@keyframes heldIn {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+/* A chip in the row: pressed in, swelling under a card held over it (its
+   folder opening), gulping the one let go in it, and, just made, popping in
+   with a burst of the accent. Its count rolls up to a new number. */
+.nib-chip {
+  transition:
+    transform calc(260ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1),
+    translate calc(260ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow calc(260ms * var(--m)) ease,
+    background-color calc(150ms * var(--m)) ease,
+    border-color calc(150ms * var(--m)) ease,
+    color calc(150ms * var(--m)) ease;
+}
+
+/* A folder's chip under a pointer rises, and its folder (FolderIcon) opens:
+   the front tips forward on its bottom edge, showing its own. */
+.nib-folder-front {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: transform calc(320ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nib-folder-edge {
+  opacity: 0;
+  transition: opacity calc(150ms * var(--m)) ease;
+}
+
+@media (hover: hover) {
+  .nib-chip[data-drop^='folder:']:not([data-over]):hover {
+    translate: 0 -1px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .nib-chip[data-drop^='folder:']:not([data-over]):hover svg {
+    scale: 1.2;
+  }
+
+  .nib-chip[data-drop^='folder:']:not([data-over]):hover .nib-folder-front {
+    transform: skewX(-16deg) scaleY(0.72);
+  }
+
+  .nib-chip[data-drop^='folder:']:not([data-over]):hover .nib-folder-edge {
+    opacity: 1;
+  }
+
+  /* A folder inside another, with no look of its own: its › steps in, as a folder's mark opens. */
+  .nib-chip[data-drop^='folder:']:not([data-over]):hover .nib-sub-mark {
+    translate: 2px 0;
+    opacity: 1;
+  }
+}
+
+.nib-sub-mark {
+  transition:
+    translate calc(320ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity calc(150ms * var(--m)) ease;
+}
+
+.nib-chip:active {
+  transform: scale(0.93);
+}
+
+/* A folder's chip picked up to be moved along the row (chipDrag): lifted,
+   the others making room for it as it goes. */
+.nib-chip[data-held] {
+  z-index: 1;
+  cursor: grabbing;
+  transform: scale(1.08);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
+}
+
+.nib-chip[data-over] {
+  transform: scale(1.12);
+}
+
+.nib-chip svg {
+  transition:
+    transform calc(260ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1),
+    scale calc(260ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nib-chip[data-over] svg {
+  transform: rotate(-12deg) scale(1.2);
+}
+
+.nib-chip[data-landed] {
+  animation: chipGulp calc(520ms * var(--m)) var(--ease);
+}
+
+@keyframes chipGulp {
+  0% {
+    transform: scale(1.12);
+  }
+  30% {
+    transform: scale(0.86);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+.nib-chip[data-fresh] {
+  animation: chipIn calc(560ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+@keyframes chipIn {
+  from {
+    opacity: 0;
+    transform: scale(0.3) rotate(-10deg);
+  }
+}
+
+/* The burst: ten dots in the accent and a few bright others, flung out from
+   the middle and shrinking as they go. */
+.nib-chip[data-fresh]::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: burst calc(700ms * var(--m)) var(--ease) calc(140ms * var(--m)) both;
+}
+
+@keyframes burst {
+  from {
+    box-shadow:
+      0 0 0 0 var(--color-accent),
+      0 0 0 0 #e7a33e,
+      0 0 0 0 #df5f86,
+      0 0 0 0 #4f9bd9,
+      0 0 0 0 #5bb37a,
+      0 0 0 0 var(--color-accent),
+      0 0 0 0 #e7a33e,
+      0 0 0 0 #df5f86,
+      0 0 0 0 #4f9bd9,
+      0 0 0 0 #5bb37a;
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  to {
+    box-shadow:
+      0 -34px 0 -2px var(--color-accent),
+      40px -28px 0 -2px #e7a33e,
+      70px -6px 0 -2px #df5f86,
+      58px 22px 0 -2px #4f9bd9,
+      18px 34px 0 -2px #5bb37a,
+      -20px 34px 0 -2px var(--color-accent),
+      -58px 22px 0 -2px #e7a33e,
+      -70px -6px 0 -2px #df5f86,
+      -40px -28px 0 -2px #4f9bd9,
+      6px -38px 0 -2px #5bb37a;
+    opacity: 0;
+  }
+}
+
+/* A stamp, set at a slight angle; a present waiting, or one opened
+   (data-fresh), pressed down onto the page from above, with the burst flung
+   out once it lands. */
+.nib-stamp {
+  position: relative;
+}
+
+.nib-stamp > svg {
+  transform: rotate(-6deg);
+}
+
+/* --d staggers several pressed on together (the welcome's second page). */
+.nib-stamp[data-fresh] > svg {
+  animation: stampPress calc(620ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) calc(var(--d, 0ms) * var(--m)) backwards;
+}
+
+@keyframes stampPress {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(1.8) rotate(-16deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(0.9) rotate(-4deg);
+  }
+  to {
+    transform: rotate(-6deg);
+  }
+}
+
+.nib-stamp[data-fresh]::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: burst calc(700ms * var(--m)) var(--ease) calc((var(--d, 0ms) + 340ms) * var(--m)) both;
+}
+
+/* The Christmas calendar's doors (components/ChristmasCalendar): an open
+   door stands swung out towards you on its left-hand hinge, and the one
+   opened today swings open as the calendar appears. */
+.nib-door-panel {
+  transform-origin: left center;
+  transform: perspective(900px) rotateY(-80deg);
+  pointer-events: none;
+}
+
+.nib-door[data-fresh] .nib-door-panel {
+  animation: doorOpen calc(900ms * var(--m)) cubic-bezier(0.3, 0.7, 0.2, 1) calc(300ms * var(--m)) backwards;
+}
+
+@keyframes doorOpen {
+  from {
+    transform: perspective(900px) rotateY(0deg);
+  }
+}
+
+/* Snow over the page while Christmas Day's present is open
+   (components/ChristmasGift), shown only with Motion at full: each flake its
+   own size, speed and drift, set where it's made. */
+.nib-snowflake {
+  position: absolute;
+  top: -12px;
+  border-radius: 50%;
+  background: #b9d4ec;
+  animation: snowFall linear infinite;
+}
+
+:root.dark .nib-snowflake {
+  background: #e4edf6;
+}
+
+/* On Winter's own frosty paper, pale blue all but vanished: white, ringed. */
+[data-theme='winter'] .nib-snowflake {
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgb(86 118 150 / 0.35);
+}
+
+@keyframes snowFall {
+  to {
+    transform: translate(var(--drift, 0px), 110vh);
+  }
+}
+
+/* Nib's birthday (components/BirthdayGift): confetti, turning as it falls. */
+.nib-confetti {
+  position: absolute;
+  top: -12px;
+  width: 8px;
+  height: 4px;
+  border-radius: 1px;
+  animation: confettiFall linear infinite;
+}
+
+@keyframes confettiFall {
+  to {
+    transform: translate(var(--drift, 0px), 110vh) rotate(var(--spin, 540deg));
+  }
+}
+
+/* Today's pack (components/Pack). It drops in from above and lands with a
+   bounce, glowing in turning rays with stars twinkling round it; tapped, it
+   shakes harder and harder, its top tears away in sparks, and it bursts in a
+   flash. The stamps flip up out of it one at a time, the lucky one last, face
+   down: it shakes, glowing in its rarity's colour, then turns over with a
+   burst (sparks, a banner with its name, rays behind legendary and mythic,
+   which shake the card and flash the screen, and mythic's glow a turning
+   rainbow). Delays from script (--d, --reveal, --c, --at) are scaled there
+   already. The idle loops, the pack's float, glow, rays and stars and the
+   waiting pack's wiggle, run only while Motion is on. */
+.nib-pack-arrive {
+  animation: packArrive calc(820ms * var(--m)) cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+
+@keyframes packArrive {
+  from {
+    opacity: 0;
+    transform: translateY(-70vh) rotate(-18deg) scale(0.6);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(10px) rotate(4deg) scale(1.05, 0.94);
+  }
+  75% {
+    transform: translateY(-6px) rotate(-2deg) scale(0.98, 1.02);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.nib-pack-shake {
+  animation:
+    packShake calc(520ms * var(--m)) ease-in-out,
+    packBurstOut calc(260ms * var(--m)) ease-in calc(740ms * var(--m)) forwards;
+}
+
+/* As the top flies, the rest of it swells and goes up in light. */
+@keyframes packBurstOut {
+  to {
+    opacity: 0;
+    transform: scale(1.35);
+    filter: brightness(1.8);
+  }
+}
+
+@keyframes packShake {
+  15% {
+    transform: rotate(-5deg) scale(1.02);
+  }
+  30% {
+    transform: rotate(5deg) scale(1.04);
+  }
+  45% {
+    transform: rotate(-6deg) scale(1.06);
+  }
+  60% {
+    transform: rotate(6deg) scale(1.08);
+  }
+  75% {
+    transform: rotate(-4deg) scale(1.1);
+  }
+  90% {
+    transform: rotate(2deg) scale(1.1);
+  }
+}
+
+/* The top, in the pack's own drawing: torn off at the right-hand notch and
+   flung up and away. */
+.nib-pack-tear {
+  transform-origin: 148px 34px;
+  animation: packTear calc(480ms * var(--m)) cubic-bezier(0.5, 0, 0.75, 0) calc(520ms * var(--m)) forwards;
+}
+
+@keyframes packTear {
+  to {
+    opacity: 0;
+    transform: translate(70px, -110px) rotate(40deg);
+  }
+}
+
+.nib-pack-burst {
+  background: radial-gradient(circle, #ffffff 0%, rgb(255 240 190 / 0.85) 30%, transparent 70%);
+  animation: packFlash calc(480ms * var(--m)) ease-out calc(520ms * var(--m)) both;
+}
+
+@keyframes packFlash {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  35% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+
+.nib-pack-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--glow) 60%, transparent) 0%, transparent 62%);
+  animation: overlayIn calc(600ms * var(--m)) ease backwards;
+}
+
+.nib-pack-glow[data-rarity='mythic'] {
+  background: conic-gradient(#e0526e, #f2c94c, #5bb37a, #4f9bd9, #8a63d2, #e0526e);
+  mask-image: radial-gradient(circle, #000 0%, transparent 62%);
+}
+
+.nib-pack-card {
+  animation: popIn calc(320ms * var(--m)) var(--ease) backwards;
+}
+
+/* Each stamp out of the pack: up from below, flipping face up as it settles into the fan. */
+.nib-pack-stamp {
+  animation: packRise calc(640ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) var(--d, 0ms) backwards;
+}
+
+@keyframes packRise {
+  from {
+    opacity: 0;
+    transform: perspective(500px) translateY(70px) rotateY(110deg) scale(0.4);
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* The lucky one comes up face down and lands, */
+.nib-pack-stamp[data-lucky] {
+  animation: packLucky calc(560ms * var(--m)) var(--ease) var(--d, 0ms) backwards;
+}
+
+@keyframes packLucky {
+  from {
+    opacity: 0;
+    transform: translateY(90px) scale(0.3) rotate(-14deg);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-12px) scale(1.06);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* shakes harder and harder as it glows in its rarity's colour (--c long), */
+.nib-pack-back {
+  pointer-events: none;
+  outline: 1.5px dashed rgb(255 255 255 / 0.55);
+  outline-offset: -5px;
+  box-shadow: 0 6px 16px rgb(10 20 40 / 0.3);
+  transform: rotate(-6deg);
+  animation:
+    packCharge var(--c, 0ms) ease-in calc(var(--d, 0ms) + 400ms * var(--m)) forwards,
+    packFlipOut calc(200ms * var(--m)) ease-in var(--reveal, 0ms) forwards;
+}
+
+@keyframes packCharge {
+  from {
+    transform: rotate(-6deg);
+    box-shadow:
+      0 6px 16px rgb(10 20 40 / 0.3),
+      0 0 0 0 transparent;
+  }
+  25% {
+    transform: rotate(-9deg) scale(1.02);
+  }
+  45% {
+    transform: rotate(-2deg) scale(1.04);
+  }
+  65% {
+    transform: rotate(-11deg) scale(1.07);
+  }
+  82% {
+    transform: rotate(0deg) scale(1.1);
+  }
+  to {
+    transform: rotate(-6deg) scale(1.14);
+    box-shadow:
+      0 6px 16px rgb(10 20 40 / 0.3),
+      0 0 30px 10px var(--glow);
+  }
+}
+
+/* and turns over (--reveal), */
+@keyframes packFlipOut {
+  to {
+    opacity: 0;
+    transform: perspective(500px) rotate(-6deg) rotateY(90deg) scale(1.2);
+  }
+}
+
+/* Its name and rarity wait for it. */
+.nib-pack-stamp[data-lucky] .nib-pack-caption {
+  animation: overlayIn calc(300ms * var(--m)) ease calc(var(--reveal, 0ms) + 200ms * var(--m)) backwards;
+}
+
+.nib-pack-stamp[data-lucky] .nib-pack-face {
+  animation: packReveal calc(560ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) calc(var(--reveal, 0ms) + 100ms * var(--m)) backwards;
+}
+
+@keyframes packReveal {
+  from {
+    opacity: 0;
+    transform: perspective(500px) rotateY(-90deg) scale(1.25);
+  }
+  40% {
+    opacity: 1;
+    transform: perspective(500px) rotateY(0deg) scale(1.3);
+  }
+}
+
+.nib-pack-face > .nib-glint {
+  inset: 3px;
+}
+
+/* with its name slammed down above the card, */
+.nib-pack-banner {
+  color: var(--glow);
+  filter: drop-shadow(0 0 1px #ffffff) drop-shadow(0 0 1px #ffffff) drop-shadow(0 3px 12px var(--glow));
+  animation: bannerSlam calc(600ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) calc(var(--reveal, 0ms) + 180ms * var(--m)) backwards;
+}
+
+.nib-pack-banner[data-rarity='legendary'],
+.nib-pack-banner[data-rarity='mythic'] {
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.nib-pack-banner[data-rarity='legendary'] {
+  background-image: linear-gradient(180deg, #fff3b0, #f2c94c 45%, #c8961e);
+}
+
+.nib-pack-banner[data-rarity='mythic'] {
+  background-image: linear-gradient(90deg, #e0526e, #f2c94c, #5bb37a, #4f9bd9, #8a63d2, #e0526e);
+  background-size: 200% 100%;
+}
+
+@keyframes bannerSlam {
+  from {
+    opacity: 0;
+    transform: scale(3) rotate(-10deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(0.9) rotate(3deg);
+  }
+  75% {
+    transform: scale(1.08) rotate(-1deg);
+  }
+}
+
+/* and, legendary and mythic, a jolt through the card. */
+.nib-pack-card[data-quake] {
+  animation:
+    popIn calc(320ms * var(--m)) var(--ease) backwards,
+    packQuake calc(460ms * var(--m)) ease-out calc(var(--reveal, 0ms) + 100ms * var(--m));
+}
+
+@keyframes packQuake {
+  10% {
+    transform: translate(-6px, 3px);
+  }
+  25% {
+    transform: translate(7px, -4px);
+  }
+  40% {
+    transform: translate(-6px, -2px);
+  }
+  55% {
+    transform: translate(5px, 3px);
+  }
+  70% {
+    transform: translate(-3px, 1px);
+  }
+  85% {
+    transform: translate(2px, -1px);
+  }
+}
+
+/* Sparks, flung out from where --at says when: the tear, or a rare stamp turning over. */
+.nib-pack-spark {
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--spark);
+  box-shadow: 0 0 8px 1px var(--spark);
+  animation: sparkFly calc(760ms * var(--m)) cubic-bezier(0.1, 0.7, 0.3, 1) var(--at, 0ms) both;
+}
+
+@keyframes sparkFly {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateX(0) scale(1.3);
+  }
+  8%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateX(var(--r)) scale(0.2);
+  }
+}
+
+/* The whole screen, flashing as the pack bursts, or in a grand stamp's colour (--flash). */
+.nib-pack-flash {
+  background: radial-gradient(circle, var(--flash, #ffffff) 0%, color-mix(in srgb, var(--flash, #ffffff) 45%, transparent) 55%, transparent 100%);
+  animation: screenFlash calc(500ms * var(--m)) ease-out both;
+}
+
+@keyframes screenFlash {
+  0% {
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Behind the sealed pack, rays of light; as it tears they flare and go. */
+.nib-pack-rays {
+  background: repeating-conic-gradient(rgb(255 246 214 / 0.5) 0deg 7deg, transparent 7deg 18deg);
+  mask-image: radial-gradient(circle, #000 18%, transparent 68%);
+  opacity: 0.7;
+  animation: overlayIn calc(900ms * var(--m)) ease calc(500ms * var(--m)) backwards;
+}
+
+@keyframes raysBurst {
+  60% {
+    opacity: 1;
+    transform: rotate(40deg) scale(1.25);
+  }
+  to {
+    opacity: 0;
+    transform: rotate(70deg) scale(1.9);
+  }
+}
+
+.nib-pack-twinkle {
+  margin: -7px 0 0 -7px;
+  opacity: 0.8;
+  filter: drop-shadow(0 0 3px rgb(255 240 190 / 0.9));
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.3) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15) rotate(90deg);
+  }
+}
+
+/* Behind a rare or better lucky stamp: its colour, flaring as it turns over
+   and staying as a halo. */
+.nib-rarity-burst {
+  margin: -75px 0 0 -75px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--glow) 55%, transparent) 0%, transparent 68%);
+  opacity: 0.8;
+  animation: rarityFlare calc(1000ms * var(--m)) var(--ease) calc(var(--reveal, 0ms) + 100ms * var(--m)) backwards;
+}
+
+@keyframes rarityFlare {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.5);
+  }
+}
+
+[data-rarity='legendary'] > span > .nib-rarity-burst::after,
+[data-rarity='mythic'] > span > .nib-rarity-burst::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(color-mix(in srgb, var(--glow) 45%, transparent) 0deg 9deg, transparent 9deg 24deg);
+  mask-image: radial-gradient(circle, #000 25%, transparent 70%);
+}
+
+.nib-pack-new {
+  animation: chipIn calc(560ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) calc(var(--d, 0ms) + 420ms * var(--m)) backwards;
+}
+
+.nib-pack-stamp[data-lucky] .nib-pack-new {
+  animation-delay: calc(var(--reveal, 0ms) + 420ms * var(--m));
+}
+
+.nib-pack-after {
+  animation: popIn calc(360ms * var(--m)) var(--ease) backwards;
+}
+
+/* The market (components/Market): the points on a card of their own, a coin
+   that turns now and then, a trade's gain rising off them, and the repeats
+   coming in one after another. */
+/* The market opening: the sheet springs up, its Nib coin drops in spinning
+   and lands with a shower of little ones and a glint across the card, the
+   coins count up from nothing, and the rest comes in row by row (--i). */
+.nib-market {
+  animation: marketIn calc(520ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+@keyframes marketIn {
+  from {
+    opacity: 0;
+    transform: translateY(46px) scale(0.92);
+  }
+  45% {
+    opacity: 1;
+  }
+}
+
+.nib-market-in {
+  animation: marketRow calc(420ms * var(--m)) var(--ease) calc((260ms + var(--i, 0) * 55ms) * var(--m)) backwards;
+}
+
+@keyframes marketRow {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+.nib-points {
+  background: linear-gradient(135deg, color-mix(in srgb, #f2c94c 22%, var(--color-paper)), color-mix(in srgb, #8a63d2 12%, var(--color-paper)));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #c8961e 30%, transparent);
+}
+
+.nib-points-glint {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.nib-points-glint::before {
+  content: '';
+  position: absolute;
+  inset: -20% -60%;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 42%, rgb(255 255 255 / 0.55) 50%, transparent 58%);
+  transform: translateX(-100%);
+  animation: glint calc(1100ms * var(--m)) ease-in-out calc(1150ms * var(--m)) both;
+}
+
+.nib-points-coin {
+  filter: drop-shadow(0 3px 5px rgb(120 80 10 / 0.35));
+  animation: coinDrop calc(1000ms * var(--m)) cubic-bezier(0.25, 0.7, 0.4, 1) calc(400ms * var(--m)) backwards;
+}
+
+@keyframes coinDrop {
+  from {
+    opacity: 0;
+    transform: perspective(240px) translateY(-80px) rotateY(0deg) scale(0.5);
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    transform: perspective(240px) translateY(5px) rotateY(1080deg) scale(1.12, 0.9);
+  }
+  85% {
+    transform: perspective(240px) translateY(-4px) rotateY(1080deg) scale(0.96, 1.04);
+  }
+  to {
+    transform: perspective(240px) rotateY(1080deg);
+  }
+}
+
+/* Little coins flung out as the big one lands. */
+.nib-coin-fly {
+  position: absolute;
+  top: -6.5px;
+  left: -6.5px;
+  animation: coinFly calc(800ms * var(--m)) cubic-bezier(0.15, 0.7, 0.3, 1) calc(1100ms * var(--m)) both;
+}
+
+@keyframes coinFly {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateX(0) rotate(calc(var(--a) * -1)) scale(0.4);
+  }
+  10%,
+  65% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateX(var(--r)) rotate(calc(var(--a) * -1 + 220deg)) scale(0.9);
+  }
+}
+
+.nib-gain {
+  animation: gainRise calc(1100ms * var(--m)) var(--ease) both;
+}
+
+@keyframes gainRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.7);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.15);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-22px);
+  }
+}
+
+.nib-repeat {
+  animation: popIn calc(320ms * var(--m)) var(--ease) calc(var(--i, 0) * 40ms * var(--m)) backwards;
+}
+
+.nib-plus-got {
+  animation: chipIn calc(560ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+/* Today's coins for coming back (DailyCoins): the card and the week's days come
+   in as the market's do, the big coin drops in spinning as the market's, a
+   glow breathing behind it; collected, it springs round twice and a fountain
+   of little coins flies out (--d, one after another). */
+.nib-coins-glow {
+  background: radial-gradient(circle, rgb(255 206 84 / 0.45), transparent 66%);
+}
+
+.nib-coins-pop[data-collected] {
+  animation: coinCollect calc(750ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes coinCollect {
+  45% {
+    transform: perspective(240px) rotateY(540deg) scale(1.3);
+  }
+  to {
+    transform: perspective(240px) rotateY(720deg);
+  }
+}
+
+.nib-coin-fly[data-now] {
+  animation-delay: calc(var(--d, 0ms) * var(--m));
+}
+
+/* Today's pack, put off: small beside the way back to the library. */
+.nib-pack-wait {
+  display: block;
+  transform-origin: 50% 100%;
+  animation: chipIn calc(560ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion='none']) .nib-pack-float {
+    animation: packFloat 3.2s ease-in-out calc(820ms * var(--m)) infinite;
+  }
+
+  :root:not([data-motion='none']) .nib-pack-glow:not([data-rarity='mythic']) {
+    animation:
+      overlayIn calc(600ms * var(--m)) ease backwards,
+      packPulse 2.6s ease-in-out infinite;
+  }
+
+  :root:not([data-motion='none']) .nib-pack-glow[data-rarity='mythic'],
+  :root:not([data-motion='none']) .nib-rarity-burst::after {
+    animation: packTurn 9s linear infinite;
+  }
+
+  :root:not([data-motion='none']) .nib-pack-wait {
+    animation:
+      chipIn calc(560ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards,
+      packWiggle 5s ease-in-out 2s infinite;
+  }
+
+  :root:not([data-motion='none']) .nib-pack-rays {
+    animation:
+      overlayIn calc(900ms * var(--m)) ease calc(500ms * var(--m)) backwards,
+      packTurn 28s linear infinite;
+  }
+
+  :root:not([data-motion='none']) [data-phase='tearing'] .nib-pack-rays {
+    animation: raysBurst calc(1000ms * var(--m)) ease-in forwards;
+  }
+
+  :root:not([data-motion='none']) .nib-points-coin {
+    animation:
+      coinDrop calc(1000ms * var(--m)) cubic-bezier(0.25, 0.7, 0.4, 1) calc(400ms * var(--m)) backwards,
+      coinTurn 4s ease-in-out 3s infinite;
+  }
+
+  :root:not([data-motion='none']) .nib-coins-glow {
+    animation:
+      overlayIn calc(600ms * var(--m)) ease calc(500ms * var(--m)) backwards,
+      packPulse 2.6s ease-in-out infinite;
+  }
+
+  :root:not([data-motion='none']) .nib-pack-twinkle {
+    animation: twinkle 2.2s ease-in-out var(--t) infinite backwards;
+  }
+
+  :root:not([data-motion='none']) .nib-pack-banner[data-rarity='mythic'] {
+    animation:
+      bannerSlam calc(600ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) calc(var(--reveal, 0ms) + 180ms * var(--m)) backwards,
+      rainbowShift 3s linear infinite;
+  }
+}
+
+@keyframes coinTurn {
+  0%,
+  80%,
+  100% {
+    transform: none;
+  }
+  90% {
+    transform: rotateY(180deg);
+  }
+}
+
+@keyframes rainbowShift {
+  to {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes packFloat {
+  50% {
+    transform: translateY(-8px) rotate(1.5deg);
+  }
+}
+
+@keyframes packPulse {
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes packTurn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes packWiggle {
+  0%,
+  80%,
+  100% {
+    transform: none;
+  }
+  84% {
+    transform: rotate(-12deg);
+  }
+  88% {
+    transform: rotate(9deg);
+  }
+  92% {
+    transform: rotate(-6deg);
+  }
+  96% {
+    transform: rotate(3deg);
+  }
+}
+
+/* The Stampbook as an album (components/Stampbook). A stack of page edges
+   to its right; each page warm paper, ruled faintly, shaded at the spine. The
+   cover, green cloth in a gold frame, swings open on its spine and away. A
+   page turns on the same hinge: lifting off to the left going forward, coming
+   back down over the page going back. Stamps found settle into their mounts
+   one after another, and photo corners close on them; from rare up they
+   catch the light now and then. The contents' bars fill to what's found. */
+.nib-album {
+  box-shadow:
+    3px 3px 0 -1px var(--color-paper),
+    3px 3px 0 0 var(--color-line),
+    6px 6px 0 -1px var(--color-paper),
+    6px 6px 0 0 var(--color-line);
+  border-radius: 3px;
+}
+
+.nib-leaf {
+  border: 1px solid var(--color-line);
+  border-radius: 3px;
+  background:
+    linear-gradient(to right, rgb(0 0 0 / 0.09), transparent 18px),
+    repeating-linear-gradient(to bottom, transparent 0 27px, color-mix(in srgb, var(--color-line) 40%, transparent) 27px 28px),
+    color-mix(in srgb, var(--color-paper) 93%, #c8a66a);
+  transform-origin: left center;
+  backface-visibility: hidden;
+}
+
+.nib-leaf-out {
+  pointer-events: none;
+  animation: leafOut calc(560ms * var(--m)) cubic-bezier(0.45, 0, 0.55, 1) forwards;
+}
+
+.nib-leaf-in {
+  animation: leafIn calc(560ms * var(--m)) cubic-bezier(0.45, 0, 0.55, 1) backwards;
+}
+
+@keyframes leafOut {
+  to {
+    transform: perspective(1400px) rotateY(-100deg);
+    box-shadow: 30px 0 40px rgb(0 0 0 / 0.25);
+  }
+}
+
+@keyframes leafIn {
+  from {
+    transform: perspective(1400px) rotateY(-100deg);
+    box-shadow: 30px 0 40px rgb(0 0 0 / 0.25);
+  }
+}
+
+.nib-page-title {
+  letter-spacing: 0.06em;
+}
+
+.nib-cover {
+  color: #dcb85e;
+  border-radius: 3px 8px 8px 3px;
+  background:
+    radial-gradient(120% 80% at 28% 18%, rgb(255 255 255 / 0.12), transparent 60%),
+    repeating-linear-gradient(45deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 3px),
+    linear-gradient(160deg, #2e4d40, #1b3027);
+  box-shadow:
+    inset 9px 0 8px -6px rgb(0 0 0 / 0.55),
+    0 10px 28px rgb(0 0 0 / 0.28);
+  transform-origin: left center;
+  backface-visibility: hidden;
+  animation: popIn calc(260ms * var(--m)) var(--ease) backwards;
+}
+
+.nib-cover-frame {
+  position: absolute;
+  inset: 14px 14px 14px 22px;
+  border: 1.5px solid currentColor;
+  outline: 1px solid currentColor;
+  outline-offset: -6px;
+  border-radius: 3px;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.nib-cover[data-cover='opening'] {
+  pointer-events: none;
+  animation: coverOpen calc(900ms * var(--m)) cubic-bezier(0.5, 0, 0.3, 1) forwards;
+}
+
+@keyframes coverOpen {
+  to {
+    transform: perspective(1600px) rotateY(-180deg);
+  }
+}
+
+.nib-mount {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  border: 1px dashed var(--color-line);
+}
+
+.nib-mount[data-found] {
+  border: none;
+  background: color-mix(in srgb, var(--color-ink) 5%, transparent);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.12);
+}
+
+/* Black corners would be lost on a dark page: grey card ones there. */
+:root.dark .nib-corners {
+  --corner: rgb(160 150 135 / 0.5);
+}
+
+/* In a mount a stamp sits square, in its corners. */
+.nib-mount .nib-stamp > svg {
+  transform: none;
+}
+
+.nib-mount[data-found] .nib-stamp {
+  display: block;
+  animation: stampSettle calc(520ms * var(--m)) cubic-bezier(0.34, 1.4, 0.64, 1) calc(var(--wait, 0ms) + var(--i, 0) * 26ms * var(--m)) backwards;
+}
+
+@keyframes stampSettle {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(1.18) rotate(6deg);
+  }
+  55% {
+    opacity: 1;
+  }
+}
+
+/* Photo corners, black paper triangles over the stamp's corners. Their own
+   element: on a touch screen a button's ::after is its larger tap target. */
+.nib-corners {
+  position: absolute;
+  inset: 4px;
+  pointer-events: none;
+  --corner: rgb(34 28 22 / 0.78);
+  background:
+    linear-gradient(135deg, var(--corner) 0 6px, transparent 6px) top left / 12px 12px no-repeat,
+    linear-gradient(225deg, var(--corner) 0 6px, transparent 6px) top right / 12px 12px no-repeat,
+    linear-gradient(45deg, var(--corner) 0 6px, transparent 6px) bottom left / 12px 12px no-repeat,
+    linear-gradient(315deg, var(--corner) 0 6px, transparent 6px) bottom right / 12px 12px no-repeat;
+  animation: overlayIn calc(260ms * var(--m)) ease calc(var(--wait, 0ms) + (420ms + var(--i, 0) * 26ms) * var(--m)) backwards;
+}
+
+.nib-glint {
+  position: absolute;
+  inset: 7px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.nib-glint::before {
+  content: '';
+  position: absolute;
+  inset: -10% -70%;
+  background: linear-gradient(105deg, transparent 42%, rgb(255 255 255 / 0.6) 50%, transparent 58%);
+  transform: translateX(-100%);
+}
+
+[data-rarity='legendary'] > .nib-glint::before {
+  background: linear-gradient(105deg, transparent 40%, rgb(255 238 170 / 0.8) 50%, transparent 60%);
+}
+
+[data-rarity='mythic'] > .nib-glint::before {
+  background: linear-gradient(105deg, transparent 34%, rgb(255 170 195 / 0.55) 43%, rgb(255 242 170 / 0.7) 50%, rgb(170 225 255 / 0.55) 57%, transparent 66%);
+}
+
+.nib-progress > span {
+  display: block;
+  height: 100%;
+  width: var(--to);
+  border-radius: inherit;
+  background: var(--rarity, var(--color-muted)); /* lib/stampbook RARITY_INKS, from the Stampbook */
+  animation: barFill calc(900ms * var(--m)) var(--ease) var(--wait, 0ms) backwards;
+}
+
+.nib-progress[data-rarity='legendary'] > span {
+  background: linear-gradient(90deg, #c8961e, #f2c94c);
+}
+
+.nib-progress[data-rarity='mythic'] > span {
+  background: linear-gradient(90deg, #e0526e, #f2c94c, #5bb37a, #4f9bd9, #8a63d2);
+}
+
+@keyframes barFill {
+  from {
+    width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion='none']) .nib-glint::before {
+    animation: glint 4.6s ease-in-out calc(1.2s + var(--i, 0) * 0.37s) infinite;
+  }
+}
+
+@keyframes glint {
+  0% {
+    transform: translateX(-100%);
+  }
+  28%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* First steps (components/FirstSteps): the ring pops in, and pops again with
+   a burst as each step is done. */
+.nib-firsts {
+  animation: chipIn calc(560ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+.nib-firsts[data-ticked]::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 15px;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: burst calc(700ms * var(--m)) var(--ease) calc(200ms * var(--m)) both;
+}
+
+.nib-count[data-rolled] {
+  animation: countUp calc(420ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+@keyframes countUp {
+  from {
+    opacity: 0;
+    transform: translateY(80%) scale(0.6);
+  }
+}
+
+/* "+ New folder" opening out into the field for its name: springing wide
+   from the chip's width (Places' --from), its edge lighting up in the accent,
+   and an empty folder dropping in, ready to be named. */
+.nib-chip-field {
+  animation: fieldOpen calc(520ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+@keyframes fieldOpen {
+  from {
+    width: var(--from, 100px);
+    border-color: var(--color-line);
+  }
+}
+
+.nib-chip-field svg {
+  animation: folderDrop calc(480ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) calc(120ms * var(--m)) backwards;
+}
+
+@keyframes folderDrop {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) rotate(-35deg) scale(0.3);
+  }
+}
+
+/* Notes and Pages: the chosen one's pill slides across. */
+.nib-kindknob {
+  transition: transform calc(340ms * var(--m)) var(--ease);
+}
+
+.nib-kindknob[data-k='1'] {
+  transform: translateX(100%);
+}
+
+/* New (Library): under a pointer it rises, and the opening's line of ink is
+   written under its label (InkLine), as under New folder's; pressed, it gives
+   a little. Clicked, it opens out into the new note (Library's openOut), as
+   this sheet. */
+.nib-new {
+  transition:
+    transform calc(300ms * var(--m)) var(--ease),
+    box-shadow calc(300ms * var(--m)) ease;
+}
+
+/* Hidden till then, or the line's round end shows as a dot. */
+.nib-new-ink {
+  opacity: 0;
+  transition: opacity calc(200ms * var(--m)) ease;
+}
+
+.nib-new-ink path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset calc(200ms * var(--m)) ease;
+}
+
+@media (hover: hover) {
+  .nib-new:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  }
+
+  :is(.nib-new, .nib-chip):hover .nib-new-ink {
+    opacity: 1;
+    transition: none;
+  }
+
+  :is(.nib-new, .nib-chip):hover .nib-new-ink path {
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset calc(450ms * var(--m)) cubic-bezier(0.45, 0, 0.2, 1);
+  }
+}
+
+.nib-new:active {
+  transform: scale(0.94);
+}
+
+.nib-sheet {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+/* Dark on dark, it needs an edge to be seen. */
+.dark .nib-sheet {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* The gear turns a little under a pointer. */
+.nib-gear svg {
+  transition: transform calc(600ms * var(--m)) var(--ease);
+}
+
+@media (hover: hover) {
+  .nib-gear:hover svg {
+    transform: rotate(90deg);
+  }
+}
+
+/* A document opening, its text arriving rather than appearing. */
+.ProseMirror.nib-editor {
+  animation: docIn calc(220ms * var(--m)) var(--ease) backwards;
+}
+
+@keyframes docIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* The formatting bar riding the keyboard (editor/FormatBar), on the
+   keyboard's own curve as measured on iOS 27: a spring that sets off from
+   rest and settles, a little quicker going down than coming up. The bar has
+   its own height to travel too, so it comes up out of the keyboard and goes
+   back down into it rather than leading or trailing it. Older WebKit, without
+   linear(), gets the nearest cubic curve. */
+.nib-bar-up {
+  transition: transform 500ms cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition-timing-function: linear(0, 0.107 5%, 0.305 10%, 0.496 15%, 0.651 20%, 0.765 25%, 0.845 30%, 0.9 35%, 0.936 40%, 0.975 50%, 0.99 60%, 0.996 70%, 1);
+}
+
+.nib-bar-down {
+  transition: transform 300ms cubic-bezier(0.3, 0.6, 0.3, 1);
+  transition-timing-function: linear(0, 0.069 5%, 0.212 10%, 0.368 15%, 0.511 20%, 0.631 25%, 0.727 30%, 0.856 40%, 0.927 50%, 0.964 60%, 0.983 70%, 1);
+}
+
+/* Anything that should get out of the way in focus mode. */
+.nib-chrome {
+  transition:
+    opacity calc(260ms * var(--m)) ease,
+    transform calc(340ms * var(--m)) var(--ease);
+}
+
+.nib-chrome[data-hidden='true'] {
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+}
+
+/* The theme picker's knob, which slides to the chosen segment. */
+.nib-segknob {
+  transition: transform calc(320ms * var(--m)) var(--ease);
+}
+
+.nib-segknob[data-k='1'] {
+  transform: translateX(calc(100% + 1px));
+}
+
+.nib-segknob[data-k='2'] {
+  transform: translateX(calc(200% + 2px));
+}
+
+/* The command palette and its backdrop. */
+.nib-pop {
+  animation: popIn calc(220ms * var(--m)) var(--ease) both;
+}
+
+.nib-overlay {
+  animation: overlayIn calc(160ms * var(--m)) ease both;
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The second palette: what still appeared or vanished in a single frame.
+   Each fills `backwards`, not `both`: an animation still filling after it
+   ends counts as a transform in place, which makes the element the
+   containing block of anything `fixed` inside it.
+   --------------------------------------------------------------------------- */
+
+/* A popover rising out of what opened it: the word count's panel, the
+   selection toolbar, the [[ picker. Quicker and nearer than a dialog's
+   popIn, since it opens under the hand. Each sets its own transform-origin. */
+.nib-float {
+  animation: floatIn calc(180ms * var(--m)) var(--ease) backwards;
+}
+
+@keyframes floatIn {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rise, 4px)) scale(0.97);
+  }
+}
+
+/* The [[ picker opens below the caret, so it drops rather than rises. */
+.nib-link-picker {
+  --rise: -4px;
+}
+
+/* A notice settling into the corner rather than being there. */
+.nib-notice {
+  animation: noticeIn calc(280ms * var(--m)) var(--ease) backwards;
+}
+
+@keyframes noticeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+/* One view of the library taking another's place: the cards for Trash or
+   History, Notes for Pages. */
+.nib-swap {
+  animation: swapIn calc(240ms * var(--m)) var(--ease) backwards;
+}
+
+@keyframes swapIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Nib Plus: the upgrade popup (UpgradeDialog) and the welcome once it's on
+   (PlusWelcome).
+   --------------------------------------------------------------------------- */
+
+/* On a phone the popup is a sheet, so it rises from the bottom edge. */
+@media (max-width: 639px), (pointer: coarse) and (max-height: 500px) {
+  .nib-plus-sheet {
+    animation: sheetUp calc(420ms * var(--m)) var(--ease) backwards;
+  }
+}
+
+/* Nib Plus in its badge's own colours (assets/plus-badge.png; components/UpgradeDialog):
+   graphite, lit by the glow round its rim, sky blue to violet. */
+.nib-plus-night {
+  background:
+    radial-gradient(120% 70% at 0% 0%, rgb(101 174 254 / 0.3), transparent 62%),
+    radial-gradient(110% 70% at 100% 100%, rgb(152 125 248 / 0.28), transparent 62%),
+    #18181c;
+  color: #f2f2f7;
+}
+/* The badge itself as a button: graphite, ringed in the glow. */
+.nib-plus-rim {
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(#18181c, #18181c) padding-box,
+    linear-gradient(135deg, #65aefe, #8097fc 50%, #987df8) border-box;
+  background-color: #18181c;
+  color: #fff;
+  box-shadow: 0 8px 24px rgb(128 151 252 / 0.35);
+}
+.nib-plus-glow {
+  background-image: linear-gradient(135deg, #65aefe, #8097fc 50%, #987df8);
+  color: #18181c;
+}
+
+@keyframes sheetUp {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* The welcome comes in here; it goes in PlusWelcome, its badge flying down
+   to the library's, which waits unseen till it lands. */
+.nib-welcome {
+  animation: overlayIn calc(200ms * var(--m)) ease backwards;
+}
+
+:root[data-welcoming] [data-plus-badge] {
+  visibility: hidden;
+}
+
+/* Lands with a little overshoot, as if set down. */
+.nib-welcome-badge {
+  animation: badgeIn calc(700ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) calc(80ms * var(--m)) backwards;
+}
+
+@keyframes badgeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.4) rotate(-14deg);
+  }
+}
+
+.nib-welcome-ring {
+  opacity: 0;
+  animation: ringOut calc(900ms * var(--m)) ease-out calc(240ms * var(--m));
+}
+
+@keyframes ringOut {
+  from {
+    opacity: 1;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.8);
+  }
+}
+
+/* Each drop flies out along its own angle (--a) and distance (--d). Ends
+   unseen, so with motion off there is nothing to see. */
+.nib-welcome-drop {
+  opacity: 0;
+  animation: dropOut calc(950ms * var(--m)) cubic-bezier(0.15, 0.75, 0.25, 1) calc(260ms * var(--m));
+}
+
+@keyframes dropOut {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(var(--a)) translateX(30px) scale(1.15);
+  }
+  65% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--a)) translateX(var(--d)) scale(0.35);
+  }
+}
+
+.nib-welcome-text {
+  animation: welcomeText calc(500ms * var(--m)) var(--ease) calc(380ms * var(--m)) backwards;
+}
+
+.nib-welcome-late {
+  animation-delay: calc(900ms * var(--m));
+}
+
+@keyframes welcomeText {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* The underline, drawn as if by the nib. */
+.nib-welcome-stroke path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: strokeIn calc(650ms * var(--m)) var(--ease) calc(620ms * var(--m)) forwards;
+}
+
+@keyframes strokeIn {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The welcome on a new device (Welcome): each part rises in turn, --d after
+   it opens, and the nib travels along the line it writes under the note
+   (the stroke above, on the same timing).
+   --------------------------------------------------------------------------- */
+.nib-hello {
+  animation: welcomeText calc(600ms * var(--m)) var(--ease) calc(var(--d, 0ms) * var(--m)) backwards;
+}
+
+.nib-hello-pen {
+  animation: penIn calc(650ms * var(--m)) var(--ease) calc(620ms * var(--m)) backwards;
+}
+
+/* The welcome's third page: the lock's shackle comes down as it shuts. */
+.nib-welcome-shackle {
+  animation: shackleShut calc(420ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1) calc(750ms * var(--m)) backwards;
+}
+
+@keyframes shackleShut {
+  from {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes penIn {
+  from {
+    transform: translateX(-112px);
+  }
+}
+
+/* Held while the loading screen (index.html) is up, so the welcome on a first
+   launch comes in as that goes rather than unseen beneath it. */
+:root:has(#nib-opening:not(.opened)) :is(.nib-hello, .nib-hello-pen, .nib-welcome-stroke path) {
+  animation-play-state: paused;
+}
+
+/* ---------------------------------------------------------------------------
+   Customize (lib/look). Every rule here answers to an attribute on <html>
+   that only a choice other than the default puts there, so with none chosen
+   not one of them applies and Nib looks as it always did.
+   --------------------------------------------------------------------------- */
+
+/* Motion: Less is twice as quick, None is every duration at nothing. */
+:root[data-motion='less'] {
+  --m: 0.5;
+}
+
+:root[data-motion='none'] {
+  --m: 0;
+}
+
+/* Text size, of the writing only. The standard sizes are the editor's own
+   (Editor.tsx) and the headings' above. */
+:root[data-size='small'] {
+  --nib-scale: 0.88;
+}
+
+:root[data-size='large'] {
+  --nib-scale: 1.12;
+}
+
+:root[data-size='larger'] {
+  --nib-scale: 1.25;
+}
+
+:root[data-size] .nib-editor {
+  font-size: calc(15px * var(--nib-scale));
+}
+
+:root[data-size] .nib-editor-page {
+  font-size: calc(17px * var(--nib-scale));
+}
+
+:root[data-size] .nib-editor-page h1 {
+  font-size: calc(28px * var(--nib-scale));
+}
+
+:root[data-size] .nib-editor-page h2 {
+  font-size: calc(22px * var(--nib-scale));
+}
+
+:root[data-size] .nib-editor-page h3 {
+  font-size: calc(18px * var(--nib-scale));
+}
+
+:root[data-size] .nib-editor-page h4 {
+  font-size: calc(17px * var(--nib-scale));
+}
+
+:root[data-size] .nib-editor-page :is(h5, h6) {
+  font-size: calc(16px * var(--nib-scale));
+}
+
+/* On a touch screen text never goes under 16px: iOS zooms the page into
+   anything smaller when it takes the caret. */
+@media (pointer: coarse) {
+  :root[data-size] .nib-editor {
+    font-size: max(16px, calc(16px * var(--nib-scale)));
+  }
+
+  :root[data-size] .nib-editor-page {
+    font-size: max(16px, calc(17px * var(--nib-scale)));
+  }
+
+  :root[data-size] .nib-editor-page h4 {
+    font-size: max(16px, calc(17px * var(--nib-scale)));
+  }
+
+  :root[data-size] .nib-editor-page :is(h5, h6) {
+    font-size: max(16px, calc(16px * var(--nib-scale)));
+  }
+}
+
+/* Line spacing (free): the standard is the editor's own, 1.7 for notes and
+   1.65 for pages (Editor.tsx). Headings and code keep theirs. */
+:root[data-spacing='tight'] .nib-editor {
+  line-height: 1.5;
+}
+
+:root[data-spacing='tight'] .nib-editor-page {
+  line-height: 1.45;
+}
+
+:root[data-spacing='airy'] .nib-editor {
+  line-height: 1.95;
+}
+
+:root[data-spacing='airy'] .nib-editor-page {
+  line-height: 1.9;
+}
+
+/* Text width: the column App.tsx holds the writing in, 680px as standard. */
+:root[data-width='narrow'] {
+  --nib-column: 580px;
+}
+
+:root[data-width='wide'] {
+  --nib-column: 800px;
+}
+
+/* Fonts (Nib Plus). Not Tailwind's --font-serif: the toolbar draws its
+   quote mark in that, and it isn't meant to change. */
+:root {
+  --nib-serif: 'Literata Variable', Georgia, serif;
+}
+
+:root[data-notes-font='sans'] .nib-editor:not(.nib-editor-page) {
+  font-family: var(--font-sans);
+}
+
+:root[data-notes-font='serif'] .nib-editor:not(.nib-editor-page) {
+  font-family: var(--nib-serif);
+}
+
+:root[data-pages-font='serif'] .nib-editor-page {
+  font-family: var(--nib-serif);
+}
+
+:root[data-pages-font='mono'] .nib-editor-page {
+  font-family: var(--font-mono);
+}
+
+/* Paragraphs on pages (Nib Plus). As standard Return starts the very next
+   line. Spaced leaves room between paragraphs; indented sets them as a book
+   does, indenting each that follows another but not the first under a
+   heading. Only the page's own paragraphs: not those in lists, quotes or
+   tables. */
+:root[data-paragraphs='spaced'] .nib-editor-page > p + p {
+  margin-top: 0.75em;
+}
+
+:root[data-paragraphs='indented'] .nib-editor-page > p + p {
+  text-indent: 1.5em;
+}
+
+/* Justified, with words broken at the line's end so the gaps stay even.
+   Table cells keep to the left. Hyphenation follows <html lang>. */
+:root[data-align='justified'] .nib-editor-page > p,
+:root[data-align='justified'] .nib-editor-page :not(th, td) > p {
+  text-align: justify;
+  -webkit-hyphens: auto;
+  hyphens: auto;
+}
+
+/* Focus mode's dimming (Nib Plus, editor/dim): the block being written
+   stays, the rest fades back. */
+.ProseMirror.nib-dim > * {
+  transition: opacity calc(200ms * var(--m)) ease;
+}
+
+.ProseMirror.nib-dim > :not(.nib-current) {
+  opacity: 0.3;
+}
+
+/* An accent of one's own (Nib Plus), over any theme's: its light-paper
+   shade, or its dark one on a dark page (lib/look ACCENTS). */
+:root[data-accent] {
+  --color-accent: var(--nib-accent-light);
+}
+
+:root.dark[data-accent] {
+  --color-accent: var(--nib-accent-dark);
+}
+
+/* A highlight of one's own (Nib Plus), the same way: in place of the
+   yellow each theme tunes for itself. */
+:root[data-highlight] {
+  --color-highlight: var(--nib-highlight-light);
+}
+
+:root.dark[data-highlight] {
+  --color-highlight: var(--nib-highlight-dark);
+}
+
+/* The writing buddy (components/Buddy): alive in its corner and its panel,
+   breathing from its collar and blinking now and then, at its own pace
+   whatever Customize's Motion (only None stops it); and moved for a moment by
+   what happens: perking up as it's opened or has something to say, thinking
+   as a question is typed, nodding as it answers. */
+.nib-buddy {
+  overflow: visible;
+  transform-origin: 50% 100%;
+  animation: buddyBreathe 4200ms ease-in-out infinite;
+}
+
+.nib-buddy-eyes {
+  transition: translate calc(220ms * var(--m)) var(--ease);
+}
+
+.nib-buddy-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: buddyBlink 5300ms infinite;
+}
+
+.nib-buddy[data-mood='perk'] {
+  animation: buddyPerk calc(720ms * var(--m)) cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nib-buddy[data-mood='think'] {
+  animation: buddyThink 1100ms ease-in-out infinite alternate;
+}
+
+/* Looking up and to one side, as one does to think. */
+.nib-buddy[data-mood='think'] .nib-buddy-eyes {
+  translate: 2.5px -3px;
+}
+
+.nib-buddy[data-mood='nod'] {
+  animation: buddyNod calc(640ms * var(--m)) ease-in-out;
+}
+
+@keyframes buddyBreathe {
+  0%,
+  100% {
+    transform: none;
+  }
+  50% {
+    transform: translateY(-2%) scale(1.012, 1.03);
+  }
+}
+
+@keyframes buddyBlink {
+  0%,
+  91%,
+  97%,
+  100% {
+    transform: none;
+  }
+  94% {
+    transform: scaleY(0.1);
+  }
+}
+
+@keyframes buddyPerk {
+  0% {
+    transform: none;
+  }
+  35% {
+    transform: translateY(-12%) scale(1.06, 1.1);
+  }
+  65% {
+    transform: translateY(2%) scale(1.05, 0.95);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes buddyThink {
+  from {
+    transform: rotate(-4deg);
+  }
+  to {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes buddyNod {
+  0%,
+  100% {
+    transform: none;
+  }
+  35% {
+    transform: rotate(7deg) translateY(3%);
+  }
+  70% {
+    transform: rotate(-2deg);
+  }
+}
+
+/* What the buddy says, each screen coming in: deeper from the right, back
+   from the left, and as a question's typed, in place (components/BuddyAsk). */
+.nib-buddy-screen {
+  animation: buddyScreen calc(300ms * var(--m)) var(--ease) both;
+}
+
+.nib-buddy-screen[data-way='on'] {
+  --from: 18px;
+}
+
+.nib-buddy-screen[data-way='back'] {
+  --from: -18px;
+}
+
+@keyframes buddyScreen {
+  from {
+    opacity: 0;
+    translate: var(--from, 0) 0;
+  }
+}
+
+/* Inkwell's keepsake, handed over once its story's been told (components/BuddyAsk). */
+.nib-buddy-gift {
+  animation: buddyScreen calc(420ms * var(--m)) var(--ease) both;
+  animation-delay: calc(1300ms * var(--m));
+}
+
+/* An answer writing itself out, a word at a time, the whole of it in about a second. */
+.nib-buddy-word {
+  animation: buddyWord calc(340ms * var(--m)) var(--ease) both;
+  animation-delay: calc(var(--w) * var(--step, 20ms) * var(--m));
+}
+
+@keyframes buddyWord {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    translate: 0 2px;
+  }
+}
+
+:root[data-motion='none'] :is(.nib-buddy, .nib-buddy-eye) {
+  animation: none;
+}
+
+/* Someone who has asked for less movement gets the states, not the travel. */
+@media (prefers-reduced-motion: reduce) {
+  /* The buddy keeps still, and says what it says at once. */
+  .nib-buddy,
+  .nib-buddy-eye,
+  .nib-buddy-screen,
+  .nib-buddy-word,
+  .nib-buddy-gift {
+    animation: none !important;
+  }
+
+  .nib-library,
+  .nib-card,
+  .nib-card > button:first-child,
+  .nib-pin > svg,
+  .nib-pin path,
+  .nib-held,
+  .nib-bin,
+  .nib-trash-row,
+  .nib-chip,
+  .nib-chip svg,
+  .nib-stamp > svg,
+  .nib-stamp::before,
+  .nib-door-panel,
+  .nib-pack-arrive,
+  .nib-pack-shake,
+  .nib-pack-tear,
+  .nib-pack-burst,
+  .nib-pack-glow,
+  .nib-pack-card,
+  .nib-pack-stamp,
+  .nib-rarity-burst,
+  .nib-pack-new,
+  .nib-pack-after,
+  .nib-pack-wait,
+  .nib-pack-back,
+  .nib-pack-face,
+  .nib-pack-caption,
+  .nib-pack-banner,
+  .nib-pack-rays,
+  .nib-pack-twinkle,
+  .nib-gain,
+  .nib-plus-got,
+  .nib-market,
+  .nib-market-in,
+  .nib-points-glint::before,
+  .nib-points-coin,
+  .nib-coin-fly,
+  .nib-coins-pop,
+  .nib-repeat,
+  .nib-cover,
+  .nib-leaf-out,
+  .nib-leaf-in,
+  .nib-mount .nib-stamp,
+  .nib-corners,
+  .nib-progress > span,
+  .nib-firsts,
+  .nib-firsts::before,
+  .nib-count,
+  .nib-chip-field,
+  .nib-chip-field svg,
+  .nib-folder-front,
+  .nib-folder-edge,
+  .nib-kindknob,
+  .nib-new,
+  .nib-new-ink,
+  .nib-new-ink path,
+  .nib-gear svg,
+  .nib-chrome,
+  .nib-segknob,
+  .nib-pop,
+  .nib-overlay,
+  .nib-float,
+  .nib-notice,
+  .nib-swap,
+  .nib-plus-sheet,
+  .nib-welcome,
+  .nib-welcome-badge,
+  .nib-welcome-text,
+  .nib-welcome-stroke path,
+  .nib-hello,
+  .nib-hello-pen,
+  .nib-welcome-shackle,
+  .ProseMirror.nib-editor {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+
+  /* On its own: a browser that doesn't know these drops the whole rule. */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 1ms !important;
+  }
+
+  .nib-welcome-ring,
+  .nib-welcome-drop,
+  .nib-chip[data-fresh]::before,
+  .nib-pin::after {
+    display: none;
+  }
+
+  /* Staggered, the cards would still wait their turn to appear, and stamps to settle. */
+  .nib-card,
+  .nib-trash-row,
+  .nib-mount .nib-stamp,
+  .nib-corners,
+  .nib-repeat,
+  .nib-market-in {
+    animation-delay: 0s !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   TipTap's own rules for the editor (@tiptap/core's style.ts, 3.31), which it
+   would otherwise add as a <style> of its own (Editor's injectCSS): the page's
+   policy lets in no <style> but its own (lib/csp). Last and outside @layer, as
+   that tag sat after this sheet, so they still win the same ties.
+   --------------------------------------------------------------------------- */
+
+.ProseMirror {
+  position: relative;
+}
+
+.ProseMirror {
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  -webkit-font-variant-ligatures: none;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0; /* the above doesn't seem to work in Edge */
+}
+
+/* A line set to one side or justified: the space where it wraps hangs past the
+   edge, or each wrapped line stops a space short of the last. */
+.ProseMirror [style*='text-align'] {
+  white-space: pre-wrap;
+}
+
+.ProseMirror [contenteditable="false"] {
+  white-space: normal;
+}
+
+.ProseMirror [contenteditable="false"] [contenteditable="true"] {
+  white-space: pre-wrap;
+}
+
+.ProseMirror pre {
+  white-space: pre-wrap;
+}
+
+img.ProseMirror-separator {
+  display: inline !important;
+  border: none !important;
+  margin: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.ProseMirror-gapcursor {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+  margin: 0;
+}
+
+.ProseMirror-gapcursor:after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 1px solid black;
+  animation: ProseMirror-cursor-blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes ProseMirror-cursor-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+
+.ProseMirror-hideselection *::-moz-selection {
+  background: transparent;
+}
+
+.ProseMirror-hideselection * {
+  caret-color: transparent;
+}
+
+.ProseMirror-focused .ProseMirror-gapcursor {
+  display: block;
+}

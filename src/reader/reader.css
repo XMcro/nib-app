@@ -1,0 +1,430 @@
+/* The reader page for a shared draft: Nib's quiet page, outside the app. */
+
+:root {
+  color-scheme: light dark;
+  --paper: #fdfdfc;
+  --ink: #1c1c1e;
+  --muted: #6e6e73;
+  --faint: #a8a8a4;
+  --line: #e7e6e3;
+  --accent: #2f6f7d;
+  --highlight: #fbe7a1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #141517;
+    --ink: #ececec;
+    --muted: #9a9aa0;
+    --faint: #6e6e73;
+    --line: #2a2c31;
+    --accent: #7fb6c2;
+    --highlight: #5b4a14;
+  }
+  img.sketch {
+    filter: invert(1) hue-rotate(180deg);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.7 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+main {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 48px 20px 120px;
+}
+
+.status {
+  color: var(--muted);
+  margin-top: 30vh;
+  text-align: center;
+}
+
+.meta {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+header.meta {
+  margin-bottom: 40px;
+}
+
+footer.meta {
+  border-top: 1px solid var(--line);
+  margin-top: 56px;
+  padding-top: 14px;
+}
+
+footer a {
+  color: var(--muted);
+}
+
+.draft.note {
+  font: 15px/1.7 ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+.draft h1,
+.draft h2,
+.draft h3,
+.draft h4,
+.draft h5,
+.draft h6 {
+  line-height: 1.3;
+  margin: 1.4em 0 0.5em;
+}
+
+.draft h1 {
+  font-size: 1.9em;
+}
+
+.draft h2 {
+  font-size: 1.4em;
+}
+
+.draft h3 {
+  font-size: 1.15em;
+}
+
+.draft h4 {
+  font-size: 1.05em;
+}
+
+.draft h5 {
+  font-size: 1em;
+}
+
+.draft h6 {
+  font-size: 0.95em;
+}
+
+.draft [data-callout] {
+  margin: 0 0 0.9em;
+  padding: 0.6em 0.9em;
+  border-radius: 8px;
+  border-inline-start: 3px solid color-mix(in srgb, var(--kind) 60%, var(--ink));
+  background: color-mix(in srgb, var(--kind) 10%, transparent);
+}
+
+.draft [data-callout] > :last-child {
+  margin-bottom: 0;
+}
+
+/* There is no icon here, so its kind is written over it. */
+.draft [data-callout]::before {
+  content: var(--name);
+  display: block;
+  font-weight: 600;
+  font-size: 0.85em;
+  color: color-mix(in srgb, var(--kind) 60%, var(--ink));
+}
+
+.draft [data-callout='note'] { --kind: #64748b; --name: 'Note'; }
+.draft [data-callout='info'] { --kind: #2f7fd1; --name: 'Info'; }
+.draft [data-callout='tip'] { --kind: #0d9488; --name: 'Tip'; }
+.draft [data-callout='success'] { --kind: #2e9e4f; --name: 'Success'; }
+.draft [data-callout='question'] { --kind: #8b5cf6; --name: 'Question'; }
+.draft [data-callout='important'] { --kind: #c026d3; --name: 'Important'; }
+.draft [data-callout='warning'] { --kind: #d97706; --name: 'Warning'; }
+.draft [data-callout='caution'] { --kind: #dc2626; --name: 'Caution'; }
+
+.draft p {
+  margin: 0 0 0.9em;
+}
+
+.draft a {
+  color: var(--accent);
+}
+
+.draft mark {
+  background: var(--highlight);
+  color: inherit;
+}
+
+/* A formula on its own lines (reader/math): MathML centres itself; a wide one scrolls, not the page. */
+.draft div.math {
+  margin: 0 0 0.9em;
+  overflow-x: auto;
+}
+
+/* A font that has the stretched brackets, arrows and bars of a formula: Chromium, left to choose, sets it in one that has none. */
+.draft math {
+  font-family: 'STIX Two Math', 'Cambria Math', 'Latin Modern Math', math;
+}
+
+.draft blockquote {
+  border-inline-start: 2px solid var(--line);
+  color: var(--muted);
+  margin: 0 0 0.9em;
+  padding-inline-start: 16px;
+}
+
+.draft pre {
+  background: color-mix(in srgb, var(--line) 50%, transparent);
+  border-radius: 6px;
+  font: 14px/1.6 ui-monospace, 'SF Mono', Menlo, monospace;
+  overflow-x: auto;
+  padding: 12px 14px;
+}
+
+.draft code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.9em;
+}
+
+/* Each a hue taken toward the page's ink, as in the app. */
+.nib-code-comment {
+  color: color-mix(in srgb, var(--muted) 70%, var(--ink));
+}
+
+.nib-code-keyword {
+  color: color-mix(in srgb, #8b5cf6 60%, var(--ink));
+}
+
+.nib-code-string {
+  color: color-mix(in srgb, #2e9e4f 60%, var(--ink));
+}
+
+.nib-code-number {
+  color: color-mix(in srgb, #d97706 60%, var(--ink));
+}
+
+.nib-code-name {
+  color: color-mix(in srgb, #2f7fd1 60%, var(--ink));
+}
+
+/* Wider than a phone, a table scrolls sideways rather than squeezing its text. */
+.draft table {
+  border-collapse: collapse;
+  display: block;
+  margin: 0 0 0.9em;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.draft th,
+.draft td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  text-align: start;
+  vertical-align: top;
+  /* A word too long for its column, often a pasted address, breaks, as in
+     the editor (src/index.css): kept whole, it starved the other columns. */
+  overflow-wrap: anywhere;
+}
+
+.draft th {
+  background: color-mix(in srgb, var(--line) 40%, transparent);
+}
+
+.draft th > p,
+.draft td > p {
+  margin: 0;
+}
+
+.draft img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+/* A picture the writer sized (lib/image IMAGE_SHARE, which a test holds these to). */
+.draft img[data-size='small'] {
+  width: 33%;
+}
+
+.draft img[data-size='medium'] {
+  width: 50%;
+}
+
+.draft img[data-size='large'] {
+  width: 75%;
+}
+
+.draft img[data-size='full'] {
+  width: 100%;
+}
+
+.draft :is(ul, ol):has(> li:first-child p:dir(rtl)),
+.draft blockquote:has(> p:first-child:dir(rtl)) {
+  direction: rtl;
+}
+
+.draft ul.tasks {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+.draft li.task {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.draft li.task > p {
+  margin: 0;
+}
+
+.draft sup a {
+  text-decoration: none;
+  padding: 0 1px;
+}
+
+.footnotes {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.85em;
+  margin-top: 40px;
+  padding-top: 8px;
+}
+
+.footnotes a {
+  text-decoration: none;
+}
+
+.notebar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+
+.notebar button,
+.noteform {
+  pointer-events: auto;
+}
+
+button {
+  background: var(--ink);
+  border: 0;
+  border-radius: 999px;
+  color: var(--paper);
+  cursor: pointer;
+  font: 500 14px/1 inherit;
+  font-family: inherit;
+  padding: 10px 16px;
+}
+
+button:disabled {
+  opacity: 0.5;
+}
+
+button.quiet {
+  background: none;
+  color: var(--muted);
+  padding: 6px 0;
+}
+
+.noteform {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  max-width: 560px;
+  margin: 0 auto;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+.noteform[hidden],
+.notebar[hidden],
+.noteform [hidden] {
+  display: none;
+}
+
+.noteform blockquote {
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+  max-height: 5.2em;
+  overflow: hidden;
+  padding-left: 10px;
+}
+
+.noteform button.quiet {
+  align-self: flex-start;
+  font-size: 12px;
+}
+
+.noteform textarea,
+.noteform input {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  /* 16px, set on its own: under that, Safari on an iPhone zooms the page in when the field is tapped. */
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.noteform .hint {
+  color: var(--faint);
+  font-size: 12px;
+  margin: 0;
+}
+
+.noteform .actions {
+  display: flex;
+  gap: 16px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* The password a draft needs, asked for before it opens. */
+.unlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 24vh auto 0;
+  max-width: 360px;
+}
+
+.unlock p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.unlock .hint {
+  color: var(--faint);
+  font-size: 12px;
+  min-height: 1.2em;
+}
+
+.unlock input {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  /* 16px, set on its own: under that, Safari on an iPhone zooms the page in when the field is tapped. */
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  padding: 8px 10px;
+}
+
+.unlock button {
+  align-self: flex-end;
+}

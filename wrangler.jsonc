@@ -1,0 +1,61 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "nib",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-13",
+  // Every Nib app syncs with the workers.dev address, so it stays on. Share
+  // links name share.nibprivacy.com, a custom domain on this same Worker.
+  "workers_dev": true,
+  // No preview addresses for versions not yet deployed: the Worker answers at its own addresses only.
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "share.nibprivacy.com", "custom_domain": true },
+    // Where Nib syncs from now on (src/lib/hosts.ts SYNC_ORIGIN); earlier Nibs use workers_dev.
+    { "pattern": "sync.nibprivacy.com", "custom_domain": true }
+  ],
+  // Nib ships as an iPhone and iPad app; there is no web app. The Worker
+  // exists for Nib Plus: sync (/v1/*) and shared drafts (/v1/shares/*, and
+  // the reader page at /d/*). Everything else is the small static site in
+  // ./site: a landing page, the privacy policy, and the reader's script.
+  "assets": {
+    "directory": "./site",
+    "binding": "ASSETS",
+    "run_worker_first": ["/v1/*", "/d/*"]
+  },
+  // One Durable Object per sync library, each with its own SQLite database;
+  // one per shared draft; one per subscription that shares drafts; one per
+  // IP address, by a hash keyed with a secret, that starts free shares or
+  // leaves notes, deleted at the end of the day; and one for codes for coins.
+  "durable_objects": {
+    "bindings": [
+      { "name": "LIBRARY", "class_name": "LibraryObject" },
+      { "name": "SHARE", "class_name": "ShareObject" },
+      { "name": "SUBSCRIBER", "class_name": "SubscriberObject" },
+      { "name": "QUOTA", "class_name": "QuotaObject" },
+      { "name": "COINS", "class_name": "CoinsObject" },
+      { "name": "COUNTS", "class_name": "CountsObject" },
+      { "name": "FEEDBACK", "class_name": "FeedbackObject" }
+    ]
+  },
+  // Sealed files (worker/files): a picture's original now, attachments later.
+  // Kept in the EU, as libraries are. The bucket is made once, before the
+  // first deploy that names it: wrangler r2 bucket create nib-files --jurisdiction eu
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "nib-files", "jurisdiction": "eu" }],
+  // Requests for a code's coins, from one network (by a keyed hash of it), a
+  // minute: none stands in front of the one object that holds every code otherwise.
+  "ratelimits": [{ "name": "COINS_LIMIT", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["LibraryObject"] },
+    { "tag": "v2", "new_sqlite_classes": ["ShareObject", "SubscriberObject"] },
+    { "tag": "v3", "new_sqlite_classes": ["QuotaObject"] },
+    { "tag": "v4", "new_sqlite_classes": ["CoinsObject"] },
+    { "tag": "v5", "new_sqlite_classes": ["CountsObject"] },
+    { "tag": "v6", "new_sqlite_classes": ["FeedbackObject"] }
+  ],
+  // Logs, but not invocation logs: those keep each request's details, its
+  // address among them, which the privacy policy says Nib doesn't store. What
+  // the code itself logs names no one (a blocked share, by slug). No traces,
+  // said here so a later compatibility date doesn't turn them on: their SQL
+  // spans would keep codes' fingerprints and the hashed networks.
+  "observability": { "enabled": true, "logs": { "invocation_logs": false }, "traces": { "enabled": false } }
+}

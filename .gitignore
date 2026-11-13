@@ -1,0 +1,52 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Screenshots and traces the browser test project writes when a test fails.
+.vitest-attachments
+__screenshots__
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Wrangler
+.wrangler
+
+# Local Worker secrets and dev switches. Never uploaded.
+.dev.vars
+.dev.vars.*
+
+# Secrets and signing keys, wherever they get dropped.
+.env
+*.p8
+*.pem
+*.p12
+
+# Built by scripts/build-capacitor.sh
+ios/App/capacitor-swift-pm/*.xcframework
+
+# nibprivacy.com build output (website/build_site.py)
+website/site
+# Built by `npm run build:reader`, for shared drafts.
+site/reader.js
+site/reader-*.js
+site/reader-licences.txt
+site/reader.css

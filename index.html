@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <!-- viewport-fit=cover: in the iOS app the page runs under the status bar
+         and home indicator, and the safe-area padding in App keeps text out of
+         both. Without it env(safe-area-inset-*) reads 0 everywhere. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="A local-first writing tool for notes and pages." />
+    <!-- Set here rather than left to the manifest: installed, this is the colour
+         the browser paints its own chrome with, and it has to be right on the
+         first frame. applyTheme keeps it in step afterwards. -->
+    <meta name="theme-color" content="#fafaf8" />
+    <title>Nib</title>
+    <script>
+      // Runs before first paint, so dark mode never flashes white on load.
+      // localStorage is synchronous; IndexedDB would be too late.
+      try {
+        var saved = localStorage.getItem('nib-theme')
+        var themeColor = document.querySelector('meta[name="theme-color"]') || {}
+        var prefersDark = matchMedia('(prefers-color-scheme: dark)').matches
+        // A named theme (lib/theme NAMED): its own colours, and dark or not
+        // as it is. A Plus one shows here, before Nib knows whether Plus is
+        // still current; App puts System back if it is not.
+        var named = /^(midnight-blue|gruvbox-dark|green-olive|clean-blue|gruvbox-light|pastel-pink|cream-soda|purple-green|alien-pink|drcl|nib-plus|winter)$/.test(saved)
+        var darkNamed = /^(midnight-blue|gruvbox-dark|green-olive|purple-green|alien-pink|drcl|nib-plus)$/.test(saved)
+        if (named) document.documentElement.dataset.theme = saved
+        // A theme of one's own: the colours lib/theme worked out last time
+        // (OWN_PALETTE_KEY), each checked to be a colour before it is used.
+        var own = saved === 'custom' ? JSON.parse(localStorage.getItem('nib-own-palette') || 'null') : null
+        var vars = own && typeof own.vars === 'object' ? own.vars : null
+        var mine = !!vars
+        for (var name in vars || {}) mine = mine && /^#[0-9a-f]{6}$/i.test(vars[name])
+        if (mine) {
+          document.documentElement.dataset.theme = 'custom'
+          for (var part in vars) document.documentElement.style.setProperty('--own-' + part, vars[part])
+          themeColor.content = vars.shell
+        }
+        // Anything other than an explicit choice means follow the system.
+        var dark = mine ? own.dark === true : named ? darkNamed : saved === 'dark' || (saved !== 'light' && prefersDark)
+        if (dark) {
+          document.documentElement.classList.add('dark')
+          if (!mine) themeColor.content = '#0e0f11'
+        }
+        // A modifier key seen before (App's keydown) means a hardware keyboard,
+        // so the shortcut hints a touch screen hides are worth showing. Not
+        // (any-pointer: fine): the iOS Simulator reports it on every phone.
+        if (localStorage.getItem('nib-keys')) {
+          document.documentElement.dataset.keys = ''
+        }
+      } catch (e) {
+        /* private mode: fall back to light, and no remembered keyboard */
+      }
+    </script>
+    <!-- The loading screen: the launch screen's own frame (LaunchScreen.storyboard),
+         so the system's picture becomes this one unseen, in the system's light or
+         dark as that one is. A line of ink draws under the nib while Nib opens;
+         lib/opening fades it once there is something to show and the line is
+         drawn. -->
+    <style>
+      #nib-opening {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        background: #fafaf8;
+        transition: opacity 0.35s ease;
+      }
+      #nib-opening svg {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+      }
+      #nib-opening .nib-mark {
+        width: 55px;
+        height: 89px;
+        margin: -44.5px 0 0 -27.5px;
+        fill: #1a1a1a;
+        transition: transform 0.35s ease;
+      }
+      #nib-opening .nib-line {
+        width: 132px;
+        height: 20px;
+        margin: 62.5px 0 0 -66px;
+      }
+      #nib-opening .nib-line path {
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+      }
+      #nib-opening.drawing .nib-line path {
+        animation: nib-line 0.45s 0.05s cubic-bezier(0.45, 0, 0.2, 1) forwards;
+      }
+      @keyframes nib-line {
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+      #nib-opening.opened {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #nib-opening.opened .nib-mark {
+        transform: scale(1.14);
+      }
+      @media (prefers-color-scheme: dark) {
+        #nib-opening {
+          background: #0e0f11;
+        }
+        #nib-opening .nib-mark {
+          fill: #e6e6e6;
+        }
+      }
+      /* Launched locked: behind Lock Nib's cover, in the theme's colours as
+         that is, so the one gives way to the other unseen. */
+      #nib-opening.locked {
+        background: var(--color-shell, #fafaf8);
+      }
+      #nib-opening.locked .nib-mark {
+        fill: var(--color-ink, #1a1a1a);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #nib-opening .nib-line path {
+          animation: none;
+          stroke-dashoffset: 0;
+        }
+        #nib-opening.opened .nib-mark {
+          transform: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="nib-opening" aria-hidden="true">
+      <svg class="nib-mark" viewBox="0 0 64 103.4">
+        <path d="M31.2 0.1L32.4 0L33.5 0.3L34.3 0.9L34.9 1.6L35.3 2.4L38.6 10.6L40.5 15L43.2 20.1L45.5 24.2L48.2 28.5L52.2 34L55.6 38.1L62.6 46.2L63.2 47L63.7 48.1L64 49.5L63.8 50.9L63.4 52L59.4 57.7L57.1 61.4L55 65.1L52.7 70L50.6 75.2L49.5 78.6L48.2 83.1L47.3 87.6L47 88.1L46.6 88.4L45.9 88.6L33.8 88.8L33.6 88.7L33.5 87.4L33.5 57.8L33.9 57.1L35.7 56L36.5 55.3L37.1 54.6L38 52.8L38.2 51.9L38.2 50.7L38.1 49.6L37.8 48.8L37.3 47.7L36.6 46.9L36 46.3L34.9 45.6L33.8 45.1L32.8 44.9L31.5 44.9L30.2 45.2L28.9 45.7L27.9 46.4L27.2 47.1L26.5 48.3L26 49.6L25.8 50.7L25.8 51.9L26 52.5L26.8 54.3L27.4 55.1L28.4 56L30 57L30.3 57.4L30.4 57.8L30.4 87.3L30.3 88.7L18.4 88.7L17.7 88.6L16.9 88.1L16.6 87.6L15.7 83.1L14.4 78.6L13 74.4L11.2 70L9.3 65.8L7.2 62L4.7 57.9L0.7 52.3L0.2 51L0 49.9L0 48.9L0.3 47.8L1.2 46.3L2.2 45.1L8 38.5L11.4 34.4L14.7 30L18 24.9L21.5 18.9L23.8 14.2L26 9.1L28.8 1.9L29.2 1.3L30 0.6Z" />
+        <rect x="10.5" y="90.1" width="42.9" height="13.3" rx="3.9" />
+      </svg>
+      <svg class="nib-line" viewBox="0 0 132 20" fill="none">
+        <path d="M4 13C22 6 40 15 62 10S104 4 128 11" stroke="#2a93ff" stroke-width="3" stroke-linecap="round" pathLength="1" />
+      </svg>
+    </div>
+    <script>
+      // Launched locked (MainViewController says so before this runs), the
+      // line waits for Lock Nib's cover to come down (lib/opening): drawn
+      // behind it, it showed whole for a moment and then started again.
+      var cover = document.getElementById('nib-opening')
+      var locked = window.nibLaunchedLocked === true
+      if (locked) cover.classList.add('locked')
+      // Painted: the line starts drawing, and in the app the launch screen's
+      // frame laid over the page till now (MainViewController) can go,
+      // uncovering this same frame. Two frames on, so this one has reached
+      // the screen; till then the line would draw unseen.
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          if (!locked) cover.classList.add('drawing')
+          var cap = window.Capacitor
+          if (cap && cap.nativePromise) cap.nativePromise('NibWindow', 'painted', {}).catch(function () {})
+        })
+      })
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

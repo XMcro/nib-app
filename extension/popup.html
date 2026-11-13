@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Save to Nib</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main id="setup" hidden>
+      <h1>Nib Web Clipper</h1>
+      <p>Paste the clipper code from Nib. In Nib, open Settings, then Sync, turn on the inbox, and choose “Copy the code for Nib’s browser extension”.</p>
+      <textarea id="code" rows="5" aria-label="Clipper code" spellcheck="false" autocomplete="off"></textarea>
+      <div class="row"><button id="keep-code" class="primary">Use this code</button></div>
+      <p class="muted" style="margin-top: 10px">The code stays in this browser. Each clip is encrypted with it here, before it’s sent, so only your devices can read it.</p>
+      <p id="setup-said" role="status"></p>
+    </main>
+    <main id="clip" hidden>
+      <input id="title" type="text" aria-label="Title" />
+      <p id="address" class="muted"></p>
+      <textarea id="note" rows="2" aria-label="Add a note" placeholder="Add a note"></textarea>
+      <fieldset>
+        <legend>Keep</legend>
+        <div id="choices"></div>
+      </fieldset>
+      <div class="row">
+        <button id="save" class="primary">Save to Nib</button>
+        <button id="pick" class="secondary">Pick parts of the page</button>
+      </div>
+      <p id="said" role="status"></p>
+      <button id="other-code" class="quiet">Use another clipper code</button>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

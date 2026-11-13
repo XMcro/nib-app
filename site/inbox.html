@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nib — Sending notes to your inbox</title>
+    <meta name="description" content="How to send a note to Nib’s inbox from another app or service." />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <style>
+      :root {
+        --paper: #ffffff;
+        --ink: #1a1a1a;
+        --muted: #6b6b6b;
+        --line: #e8e8e8;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --paper: #111214;
+          --ink: #e6e6e6;
+          --muted: #8b8b90;
+          --line: #232529;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 16px/1.65 system-ui, -apple-system, sans-serif;
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 48px 20px 80px;
+      }
+      h1 {
+        font-size: 28px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 36px 0 8px;
+      }
+      p,
+      li {
+        margin: 0 0 12px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      a {
+        color: inherit;
+      }
+      hr {
+        border: 0;
+        border-top: 1px solid var(--line);
+        margin: 36px 0;
+      }
+          pre {
+        margin: 0 0 12px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow-x: auto;
+        font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      code {
+        font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      pre code {
+        font-size: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sending notes to your inbox</h1>
+      <p class="muted">Nib for iPhone, iPad and Mac, with Nib Plus.</p>
+
+      <p>Nib’s inbox is an address that other apps and services can send notes to. Each note sent to it becomes a note in Nib the next time one of your devices syncs. It needs Nib Plus, with sync turned on.</p>
+
+      <h2>Turn it on</h2>
+      <p>In Nib, open Settings → Sync and choose “Turn on the inbox”. Nib shows the inbox’s address, which you can copy.</p>
+      <p>The address ends in a secret. Anyone who has the address can send notes to your inbox, so keep it as you would a password. If it gets out, “New address” replaces it at once, and the old one stops working.</p>
+
+      <h2>What to send</h2>
+      <p>Send a POST request to the address, with any of these:</p>
+      <ul>
+        <li><code>title</code>: the note’s first line;</li>
+        <li><code>text</code>: the note’s text, read as Markdown: bold, italics, lists, checklists and links. A note has no headings, so a heading becomes a line of its own;</li>
+        <li><code>url</code>: a web address, which goes on the note’s last line as a link.</li>
+      </ul>
+      <p>They can be sent as JSON, as a form, or you can send the text alone. A post can be up to 100 KB. With <code>curl</code>, using the whole address Nib shows you:</p>
+      <pre><code>curl https://sync.nibprivacy.com/v1/in/YOUR-ADDRESS \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "Tide times",
+       "text": "High water at **06:12**",
+       "url": "https://example.com/tides"}'</code></pre>
+      <pre><code>curl https://sync.nibprivacy.com/v1/in/YOUR-ADDRESS -d 'Buy milk'</code></pre>
+      <p>Where you can set a header, you can keep the secret out of the address: send to the address up to its last dot, and put what comes after the dot in an <code>Authorization</code> header. Then it isn’t written down anywhere addresses are, such as a log:</p>
+      <pre><code>curl https://sync.nibprivacy.com/v1/in/THE-PART-BEFORE-THE-DOT \
+  -H 'Authorization: Bearer THE-PART-AFTER-THE-DOT' \
+  -d 'Buy milk'</code></pre>
+
+      <h2>What comes back</h2>
+      <p>A note that was taken is answered with <code>200</code> and <code>{"received":true}</code>. Otherwise:</p>
+      <ul>
+        <li><code>400</code>: there was nothing to keep. Send <code>title</code>, <code>text</code> or <code>url</code>, each as text;</li>
+        <li><code>404</code>: there is no inbox at that address. It may have been replaced, or the inbox turned off;</li>
+        <li><code>402</code>: Nib Plus isn’t active for the library;</li>
+        <li><code>413</code>: the post was over 100 KB;</li>
+        <li><code>429</code>: the inbox has taken 200 notes today, which is the most it takes in a day (counted in UTC);</li>
+        <li><code>507</code>: 200 notes are waiting, or 20 MB of them, which is the most it holds. Open Nib so it syncs and takes them in.</li>
+      </ul>
+
+      <h2>From Zapier</h2>
+      <p>Add a “Webhooks by Zapier” step, which needs a paid Zapier plan. For Event choose POST, put your inbox’s address in URL, set Payload Type to JSON, and under Data add <code>title</code>, <code>text</code> and <code>url</code> as you need them, each with the value to send.</p>
+
+      <h2>From IFTTT</h2>
+      <p>Use the “Webhooks” service’s “Make a web request” action. Put your inbox’s address in URL and set Method to POST. The simplest way is to set Content Type to <code>text/plain</code> and put the note’s text alone in Body: it arrives as the note’s text whatever it contains. To send a title or a link as well, set Content Type to <code>application/json</code> and write the Body as JSON, as in the first example above.</p>
+
+      <h2>From Shortcuts</h2>
+      <p>Add a “Get Contents of URL” action with your inbox’s address. Tap Show More, set the method to POST, choose JSON for Request Body, and add <code>title</code>, <code>text</code> and <code>url</code> as you need them.</p>
+
+      <h2>From your computer’s browser</h2>
+      <p>Nib Web Clipper is an extension for Chrome, Edge and Firefox that saves web pages to your inbox. It encrypts each one in your browser before sending it, so, unlike a note sent in the other ways here, Nib’s server never has it in a form it can read.</p>
+      <p>Install Nib Web Clipper from your browser’s extension store. In Nib, open Settings → Sync and choose “Copy the code for Nib’s browser extension”. Then click the extension’s button in your browser’s toolbar, paste the code and choose “Use this code”. The code holds your inbox’s address, so keep it as you would the address. After “New address”, copy the code again and give it to the extension with “Use another clipper code”.</p>
+      <p>On a page you want to keep, click the extension’s button and choose what to keep: the link only, what you’ve selected, the article, the part on screen or the whole page. Then choose “Save to Nib”. You can change the title first, and add a note of your own. To keep some parts and not others, choose “Pick parts of the page”, click each part you want, and choose “Save to Nib” in the bar at the top of the page.</p>
+      <p>A clip keeps a page’s words: its headings, lists, tables and links, and not its pictures. A link or a selection becomes a note, and anything more becomes a page. A clip counts toward what the inbox holds and what it takes in a day, as any note sent to it does.</p>
+      <p>On iPhone and iPad there is nothing to install: share a page from Safari to Nib, and choose what to keep there.</p>
+
+      <h2>When a note arrives</h2>
+      <p>A note comes in the next time Nib syncs on any of your devices: when you open Nib, every so often while it’s open, or when you choose Sync now. On a device set to “Sync only when I ask”, it comes in when you choose Sync now. It goes into Notes, in the folder you’ve chosen for new notes if you’ve chosen one.</p>
+      <p>A note waits on the server for up to 30 days. One that no device has taken in by then is deleted.</p>
+
+      <h2>Privacy</h2>
+      <p>A note you send reaches Nib’s server readable, because the app or service that sends it can’t encrypt it for you. The server encrypts it the moment it arrives, so that only your devices can read it, and deletes it once one of them has taken it in. The <a href="/privacy">Privacy Policy</a> has the rest.</p>
+
+      <hr />
+      <p class="muted"><a href="/">Nib</a></p>
+    </main>
+  </body>
+</html>

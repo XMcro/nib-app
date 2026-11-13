@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nib</title>
+    <meta name="description" content="A quiet place to write, for iPhone and iPad." />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <style>
+      :root {
+        --paper: #ffffff;
+        --ink: #1a1a1a;
+        --muted: #6b6b6b;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --paper: #111214;
+          --ink: #e6e6e6;
+          --muted: #8b8b90;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 16px/1.65 system-ui, -apple-system, sans-serif;
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 96px 20px 80px;
+      }
+      img {
+        width: 72px;
+        height: 72px;
+        border-radius: 16px;
+      }
+      h1 {
+        font-size: 28px;
+        margin: 20px 0 4px;
+      }
+      p {
+        margin: 0 0 12px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      a {
+        color: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/favicon.png" alt="" />
+      <h1>Nib</h1>
+      <p>A quiet place to write, for iPhone and iPad.</p>
+      <p class="muted">Your writing stays on your device. No accounts, no ads, no tracking.</p>
+      <p class="muted"><a href="/privacy">Privacy Policy</a></p>
+    </main>
+  </body>
+</html>

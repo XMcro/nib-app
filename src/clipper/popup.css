@@ -1,0 +1,125 @@
+:root {
+  --paper: #ffffff;
+  --ink: #1a1a1a;
+  --muted: #6b6b6b;
+  --line: #e4e4e4;
+  --field: #f6f6f4;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #17181a;
+    --ink: #e8e8e8;
+    --muted: #96969b;
+    --line: #2c2e33;
+    --field: #202226;
+  }
+}
+body {
+  margin: 0;
+  width: 340px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 13px/1.5 system-ui, -apple-system, sans-serif;
+}
+main {
+  padding: 14px 16px 16px;
+}
+[hidden] {
+  display: none !important;
+}
+h1 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+p {
+  margin: 0 0 10px;
+}
+.muted {
+  color: var(--muted);
+}
+input[type='text'],
+textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--field);
+  color: inherit;
+  font: inherit;
+  resize: none;
+}
+#code {
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+#address {
+  margin: -2px 0 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+fieldset {
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+}
+legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+#choices label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.row {
+  display: flex;
+  gap: 8px;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+}
+.primary,
+.secondary {
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--ink);
+}
+.primary {
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+}
+.secondary {
+  flex: none;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.quiet {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+[role='status'] {
+  min-height: 1.5em;
+  margin: 8px 0 0;
+}
