@@ -315,14 +315,16 @@ describe('a draft to be read once', () => {
     void opening
   })
 
-  it('with a password too, is revealed first and opened by the password after, as often as it takes', async () => {
+  // This stand-in hands it over for any token, as the server does one from a Nib before tokens: the password is
+  // asked for with "Open it now" all the same, and again after if it was wrong (page.once.test.ts has the rest).
+  it('with a password too, asks for it before it’s revealed, and again after for as often as it takes', async () => {
     const { root, opening } = await once({ password: 'harbour lights' })
     await until(() => !!button(root, 'Open it now'))
-    expect(root.textContent).toContain('You’ll need its password too: have it ready.')
+    expect(root.textContent).toContain('It needs a password too: the writer will have given it to you with the link.')
+    await userEvent.fill(root.querySelector('input[type=password]')!, 'wrong')
     await userEvent.click(button(root, 'Open it now'))
-    await until(() => !!root.querySelector('input[type=password]'))
     // Closing the page to go and ask for the password would lose it.
-    expect(root.textContent).toContain('It’s deleted from Nib’s server now: keep this page open until you’ve read it.')
+    await until(() => (root.textContent ?? '').includes('It’s deleted from Nib’s server now: keep this page open until you’ve read it.'))
     await userEvent.fill(root.querySelector('input[type=password]')!, 'wrong')
     await userEvent.click(button(root, 'Open'))
     await until(() => (root.textContent ?? '').includes('That password doesn’t open it.'))

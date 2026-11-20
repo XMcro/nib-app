@@ -241,6 +241,17 @@ describe('talking to the server', () => {
     expect(snapshot({ kind: 'note', body }).body.content![0].content).toEqual([{ type: 'image', attrs: { src } }])
   })
 
+  // The red-team review of 2026-11-17: the token came from the link's key whatever else the draft needed, so anyone
+  // with the link could have one with a password handed over, and so deleted, without the password.
+  it('asks for one to be read once with a password by a token that takes the password to make', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ expiresAt: 42 }), { status: 201 }))
+    vi.stubGlobal('fetch', fetch)
+    const made = await createShare({ kind: 'page', body: { type: 'doc' } }, 30, 'the-jws', { once: true, password: 'harbour lights' })
+    const { reveal } = JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body))
+    expect(reveal).toBe(await revealCheck(await revealToken(await withPassword(made.key, made.slug, 'harbour lights'), made.slug)))
+    expect(reveal).not.toBe(await revealCheck(await revealToken(made.key, made.slug)))
+  })
+
   it('asks for one to be read once only when told to, and only with a receipt', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ expiresAt: 42 }), { status: 201 }))
     vi.stubGlobal('fetch', fetch)

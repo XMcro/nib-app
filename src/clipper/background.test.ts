@@ -13,14 +13,16 @@ const SENT_TO = ADDRESS.slice(0, ADDRESS.lastIndexOf('.'))
 let listener: Listener
 let stored: Record<string, unknown>
 let fetching: ReturnType<typeof vi.fn>
+let levels: unknown[]
 
 beforeEach(async () => {
   stored = {}
+  levels = []
   fetching = vi.fn(async () => new Response('{}', { status: 200 }))
   vi.stubGlobal('fetch', fetching)
   vi.stubGlobal('chrome', {
     runtime: { id: 'this-extension', onMessage: { addListener: (added: Listener) => void (listener = added) } },
-    storage: { local: { get: async (key: string) => ({ [key]: stored[key] }) } },
+    storage: { local: { get: async (key: string) => ({ [key]: stored[key] }), setAccessLevel: async (level: unknown) => void levels.push(level) } },
   })
   vi.resetModules()
   await import('./background')
@@ -35,6 +37,20 @@ const asked = (message: unknown, sender = { id: 'this-extension' }) =>
   })
 
 describe('the extension’s background', () => {
+  // The red-team review of 2026-11-17: a browser lets an extension's scripts in a page read its storage unless told otherwise.
+  it('keeps its storage, the code in it, from the scripts it puts in pages', () => {
+    expect(levels).toEqual([{ accessLevel: 'TRUSTED_CONTEXTS' }])
+  })
+
+  it('starts all the same in a browser that has no such setting, or refuses it', async () => {
+    for (const setAccessLevel of [undefined, async () => Promise.reject(new Error('Not here.')), () => { throw new Error('Nor here.') }]) {
+      vi.stubGlobal('chrome', { runtime: { id: 'this-extension', onMessage: { addListener: (added: Listener) => void (listener = added) } }, storage: { local: { get: async () => ({}), setAccessLevel } } })
+      vi.resetModules()
+      await import('./background')
+      expect((await asked({ type: 'clip', post: { title: 'A' } })).taken).toBe(true)
+    }
+  })
+
   it('seals a clip from the extension with the code it keeps, and sends it to that code’s address', async () => {
     const keys = await newInboxKeys()
     stored.code = clipperCode(ADDRESS, keys.publicKey)

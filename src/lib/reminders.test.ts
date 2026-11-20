@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, renderHook } from '@testing-library/react'
+import { act, cleanup, renderHook } from '@testing-library/react'
 import type { Item } from '../db/db'
 
 // The device's side, stood in for: what it has waiting to ring.
@@ -12,6 +12,7 @@ vi.mock('@capacitor/core', async (importOriginal) => ({
 }))
 vi.mock('./platform', async (importOriginal) => ({ ...(await importOriginal<typeof import('./platform')>()), nativeApp: true }))
 
+const { useReminders } = await import('./reminders')
 const { asReminder, describeReminder, forget, keepReminders, nextAt, remind, ReminderError, reminderOf, reminderPlan, refreshReminders, repeatWord, setReminder, silentHere, snoozedFor, suggestedTimes, toLocalInput, unkept, useKeptReminders } = await import('./reminders')
 const { db } = await import('../db/db')
 const items = await import('../db/items')
@@ -414,5 +415,70 @@ describe('describing a time', () => {
 
   it('gives the date picker local time with no zone', () => {
     expect(toLocalInput(at(8, 7, 5))).toBe('2026-10-08T07:05')
+  })
+})
+
+// Each look said so whatever it found, and each save looked: the whole app drawn again, and the device asked twice, for nothing.
+describe('looking at what this device will ring, with nothing changed', () => {
+  const later = () => Date.now() + 3_600_000
+  const settled = () => act(() => new Promise<void>((done) => setTimeout(done, 30)))
+  /** How many times what shows the reminders has been drawn. */
+  function shown() {
+    let drawn = 0
+    renderHook(() => {
+      drawn++
+      useReminders()
+    })
+    return () => drawn
+  }
+  afterEach(cleanup)
+
+  it('says nothing to what shows them, and says so once something has', async () => {
+    device = [{ id: 'a', at: later(), title: 'Note a' }]
+    await refreshReminders()
+    const drawn = shown()
+    const before = drawn()
+    await act(() => refreshReminders())
+    expect(drawn()).toBe(before)
+    device = [...device, { id: 'b', at: later(), title: 'Note b' }]
+    await act(() => refreshReminders())
+    expect(drawn()).toBe(before + 1)
+  })
+
+  it('still says so when notifications turn out not to be allowed here, with nothing waiting either way', async () => {
+    await keepReminders([])
+    expect(silentHere()).toBe(false)
+    const drawn = shown()
+    const before = drawn()
+    native.schedule = vi.fn(denied)
+    await act(() => keepReminders([note('a', { reminder: { at: later() } })]))
+    expect(silentHere()).toBe(true)
+    expect(drawn()).toBeGreaterThan(before)
+  })
+
+  it('asks the device nothing for a save that changes nothing a reminder says', async () => {
+    const when = later()
+    const reminded = note('a', { reminder: { at: when } })
+    const { rerender } = renderHook(({ listed }: { listed: Item[] }) => useKeptReminders(listed, [], true), { initialProps: { listed: [reminded, note('b')] } })
+    await settled()
+    const asked = native.list.mock.calls.length
+    expect(asked).toBeGreaterThan(0)
+    // Another note written in, and this one's text below its title.
+    rerender({ listed: [{ ...reminded, rev: 2 }, { ...note('b'), body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Note b, written in' }] }] } }] })
+    await settled()
+    expect(native.list.mock.calls.length).toBe(asked)
+    rerender({ listed: [note('a', { reminder: { at: when + 60_000 } }), note('b')] })
+    await settled()
+    expect(native.list.mock.calls.length).toBeGreaterThan(asked)
+    expect(device.find((one) => one.id === 'a')?.at).toBe(when + 60_000)
+  })
+
+  it('looks again as Nib comes back to the front, whatever has or hasn’t changed', async () => {
+    renderHook(() => useKeptReminders([note('a', { reminder: { at: later() } })], [], true))
+    await settled()
+    const asked = native.list.mock.calls.length
+    act(() => void document.dispatchEvent(new Event('visibilitychange')))
+    await settled()
+    expect(native.list.mock.calls.length).toBeGreaterThan(asked)
   })
 })

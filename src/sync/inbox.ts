@@ -7,6 +7,7 @@ import * as items from '../db/items'
 import { markdownToBody } from '../lib/import'
 import { withWebPage } from '../lib/importApps'
 import { SERVER } from '../lib/server'
+import { isTime } from '../lib/time'
 import type { Api } from './api'
 import { open, seal, type SyncKeys } from './crypto'
 
@@ -99,6 +100,26 @@ export function postBody(post: Post): JSONContent {
   return { type: 'doc', content: [...lead, ...words, ...link] }
 }
 
+/**
+ * A post as a document (`postBody`), or, if its text can't be read as
+ * Markdown, as the plain text it is: its title, its lines, its link. Left to
+ * fail, one such post stopped the rest being taken, and the server being told
+ * of any: it and every post after it waited there till they expired, fetched
+ * again at every look.
+ */
+function bodyOf(post: Post): JSONContent {
+  try {
+    return postBody(post)
+  } catch (error) {
+    console.warn('Nib: a post in the inbox could not be read as Markdown, and was kept as plain text', error)
+    const lines = [said(post.title), ...said(post.text).split('\n'), said(post.url)].map((line) => line.trim()).filter(Boolean)
+    return { type: 'doc', content: lines.map((line) => paragraph(line)) }
+  }
+}
+
+/** How many answers of posts one look takes. */
+const MOST_ROUNDS = 50
+
 /** The note a post becomes, by a name any device would give it: taken in twice, or on two devices at once, it's one note. */
 async function noteId(keys: SyncKeys, post: { id: number; at: number }): Promise<string> {
   const hex = await bodyHash(encoder.encode(`nib-inbox:${keys.libraryId}:${post.id}:${post.at}`))
@@ -112,24 +133,27 @@ async function noteId(keys: SyncKeys, post: { id: number; at: number }): Promise
  */
 export async function takePosts(keys: SyncKeys, api: Api, folder?: string): Promise<number> {
   let made = 0
-  for (;;) {
+  // A server that always said there were more would be asked for ever: the rest wait for the next look.
+  for (let round = 0; round < MOST_ROUNDS; round++) {
     const { on, kept, posts, more } = await api.inbox()
     const mine = on && kept ? await opened(keys, kept) : null
     if (!mine) return made
     const privateKey = await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', d: mine.d, x: mine.x, y: mine.y }, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits'])
     for (const post of posts) {
       const read = await openPost(privateKey, publicKey(mine), post.p).catch(() => null)
-      const body = read && postBody(read)
+      const body = read && bodyOf(read)
       if (!read || !body?.content?.length) {
         console.warn('Nib: a post in the inbox could not be read')
         continue
       }
       const id = await noteId(keys, post)
       if (await items.get(id)) continue
-      await items.create(postKind(read), body, { id, createdAt: post.at, folder })
+      // The server's word for when it came, if that is a time at all: a note dated by anything else can't be restored from a backup.
+      await items.create(postKind(read), body, { id, createdAt: isTime(post.at) ? post.at : Date.now(), folder })
       made += 1
     }
     await api.tookPosts(posts.map((post) => post.id))
     if (!more) return made
   }
+  return made
 }

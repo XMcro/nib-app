@@ -59,16 +59,24 @@ export async function openDraft(root: HTMLElement, link: URL, fetch: typeof wind
   let shared = (await response.json()) as { doc?: string; once?: boolean; counted?: boolean; expiresAt: number; notesOn: boolean }
   const once = shared.once === true
   const counted = shared.counted === true
+  // The key the password typed for one to be read once makes, if one was.
+  let tried: string | undefined
   if (once) {
     const revealed = await reveal(root, slug, key, needsPassword, fetch)
     if (!revealed) return say(ALREADY_READ)
     shared = revealed
+    tried = revealed.sealKey
   }
   if (typeof shared.doc !== 'string') return say('This draft can’t be shown. Ask the writer to share it again.')
 
   let draft: { kind?: unknown; body?: unknown }
   let sealKey = key
-  if (needsPassword) {
+  // Handed over for that password's token, it opens with it; an older one, handed over for the link's, may not.
+  const opened = tried ? await open(tried, slug, 'doc', shared.doc).catch(() => undefined) : undefined
+  if (opened !== undefined) {
+    draft = opened as typeof draft
+    sealKey = tried!
+  } else if (needsPassword) {
     ;({ draft, sealKey } = await unlock(root, slug, key, shared.doc, once ? ' It’s deleted from Nib’s server now: keep this page open until you’ve read it.' : counted ? ` ${COUNTED}` : ''))
   } else {
     try {
@@ -90,6 +98,8 @@ export async function openDraft(root: HTMLElement, link: URL, fetch: typeof wind
   root.replaceChildren(header, article, ...(shared.notesOn ? notes(article, slug, sealKey, fetch) : []), footer(link, counted))
 }
 
+type Revealed = { doc?: string; expiresAt: number; notesOn: boolean }
+
 const readOnceGone = async (response: Response) => ((await response.json().catch(() => null)) as { error?: string } | null)?.error === READ_ONCE_GONE
 
 /**
@@ -97,28 +107,49 @@ const readOnceGone = async (response: Response) => ((await response.json().catch
  * with the draft once the server has handed it over, which deletes it there;
  * or with null if someone read it first. A request that never got there uses
  * nothing up, and can be made again.
+ *
+ * One that needs a password is asked for it here, first, and for the token
+ * the password makes (src/share/crypto `revealToken`): the link alone had it
+ * handed over, and so deleted, with its password still to be asked for (the
+ * red-team review of 2026-11-17). A wrong password uses nothing up. Resolves
+ * then with `sealKey` too, the key that password makes. A draft from a Nib
+ * before that kept the token of the link's key alone, which is tried second:
+ * that one is handed over whatever the password, as it always was.
  */
-function reveal(root: HTMLElement, slug: string, key: string, needsPassword: boolean, fetch: typeof window.fetch): Promise<{ doc?: string; expiresAt: number; notesOn: boolean } | null> {
+function reveal(root: HTMLElement, slug: string, key: string, needsPassword: boolean, fetch: typeof window.fetch): Promise<(Revealed & { sealKey?: string }) | null> {
   return new Promise((resolve) => {
     const form = element('form', 'unlock')
-    const label = element('p', '', `This draft can be read once. When you open it, it’s deleted from Nib’s server, and this link stops working. The writer will see that it has been read.${needsPassword ? ' You’ll need its password too: have it ready.' : ''}`)
+    const label = element('p', '', `This draft can be read once. When you open it, it’s deleted from Nib’s server, and this link stops working. The writer will see that it has been read.${needsPassword ? ' It needs a password too: the writer will have given it to you with the link.' : ''}`)
+    const input = element('input')
+    input.type = 'password'
+    input.autocomplete = 'off'
+    input.required = true
+    input.setAttribute('aria-label', 'Password')
+    input.placeholder = 'Password'
     const message = element('p', 'hint')
     const button = element('button', '', 'Open it now')
     button.type = 'submit'
-    form.append(label, message, button)
+    form.append(label, ...(needsPassword ? [input] : []), message, button)
     root.replaceChildren(form)
+
+    const ask = async (from: string) =>
+      fetch(`/v1/shares/${slug}/reveal`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: await revealToken(from, slug) }) })
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault()
+      if (needsPassword && !input.value) return
       button.disabled = true
       message.textContent = 'Opening…'
       try {
-        // With a token from the link's key, which the slug alone, seen on the way, can't make (src/share/crypto `revealToken`).
-        const token = await revealToken(key, slug)
-        const response = await fetch(`/v1/shares/${slug}/reveal`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })
-        if (response.ok) return resolve((await response.json()) as { doc?: string; expiresAt: number; notesOn: boolean })
+        // With a token from the key that opens it, which the slug alone, seen on the way, can't make (src/share/crypto `revealToken`).
+        const sealKey = needsPassword ? await withPassword(key, slug, input.value) : undefined
+        let response = await ask(sealKey ?? key)
+        if (sealKey && response.status === 404) response = await ask(key)
+        if (response.ok) return resolve({ ...((await response.json()) as Revealed), sealKey })
         if (response.status === 410 && (await readOnceGone(response))) return resolve(null)
-        message.textContent = response.status === 503 ? 'Shared drafts are unavailable just now. Try again later.' : 'This draft is no longer shared.'
+        message.textContent =
+          response.status === 503 ? 'Shared drafts are unavailable just now. Try again later.' : sealKey && response.status === 404 ? 'That password doesn’t open it. Check it with the writer.' : 'This draft is no longer shared.'
+        if (sealKey) input.select()
       } catch {
         message.textContent = 'Couldn’t reach Nib. Check your connection and try again.'
       }

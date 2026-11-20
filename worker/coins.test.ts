@@ -45,12 +45,21 @@ describe('codes for coins, on the server', () => {
       expect(asked).toEqual([])
     })
 
-    it('asks by a keyed hash of the network, never the address', async () => {
+    it('asks by a keyed hash of the network, and of the wider one round it, never the address', async () => {
       const keys: string[] = []
       const { redeem } = route({ limit: async ({ key }) => (keys.push(key), { success: true }) })
       expect((await redeem('claim-one-1')).status).toBe(200)
-      expect(keys).toHaveLength(1)
-      expect(keys[0]).toMatch(/^[0-9a-f]{64}$/)
+      expect(keys).toHaveLength(2)
+      expect(new Set(keys).size).toBe(2)
+      for (const key of keys) expect(key).toMatch(/^[0-9a-f]{64}$/)
+    })
+
+    // Limited by the address or its /64 alone, a block of addresses had as many goes as it had addresses.
+    it('refuses past the wider network’s limit too, and never reaches the object', async () => {
+      const keys: string[] = []
+      const { asked, redeem } = route({ limit: async ({ key }) => ({ success: keys.push(key) === 1 }) })
+      expect((await redeem('claim-one-1')).status).toBe(429)
+      expect(asked).toEqual([])
     })
 
     it('works without the binding, as in tests and wrangler dev, and when the limiter fails', async () => {

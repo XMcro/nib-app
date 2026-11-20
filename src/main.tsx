@@ -1,3 +1,5 @@
+// First, before React's scheduler loads and chooses how to run its work (lib/immediate).
+import './lib/immediate.ts'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/inter'
@@ -12,7 +14,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { download } from './lib/download.ts'
 import { count, sendCounts } from './lib/counts.ts'
 import { sweepExports } from './lib/exportFile.ts'
-import { sweepFiles } from './lib/fileUse.ts'
+import { keepFilesSwept } from './lib/fileUse.ts'
 import { countLaunch } from './lib/feedback.ts'
 import { restoreFromMirror } from './lib/mirror.ts'
 import { nativeApp } from './lib/platform.ts'
@@ -50,9 +52,9 @@ if (nativeApp) {
   await restoreFromMirror().catch((error: unknown) => console.error('Nib: restore from the app’s file failed', error))
 }
 
-// Files no document uses any more (lib/fileUse): looked for once a day, as Nib opens. After the library is back
-// (above): looked for in a library iOS had just emptied, every one would seem unused.
-void sweepFiles().catch((error: unknown) => console.warn('Nib: could not clear unused files', error))
+// Files no document uses any more (lib/fileUse): looked for once a day, a couple of minutes in. After the library is
+// back (above): looked for in a library iOS had just emptied, every one would seem unused.
+keepFilesSwept()
 
 // A launch, for what Nib asks at which (lib/feedback); and any finished day's counts, for a writer who said yes.
 if (nativeApp) {

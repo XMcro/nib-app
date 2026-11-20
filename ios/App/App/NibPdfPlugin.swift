@@ -31,12 +31,23 @@ public class NibPdfPlugin: CAPPlugin, CAPBridgedPlugin, WKNavigationDelegate {
         let header = call.getString("header")
         DispatchQueue.main.async {
             let paper = Self.paper()
-            let view = WKWebView(frame: CGRect(origin: .zero, size: paper.size))
+            // Laid out and nothing more: no script runs in it, and nothing it's given outlasts it (the red-team
+            // review of 2026-11-17). The page is a document's own text, made into HTML by Nib, with no script in it.
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = .nonPersistent()
+            configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+            let view = WKWebView(frame: CGRect(origin: .zero, size: paper.size), configuration: configuration)
             view.navigationDelegate = self
             self.jobs[ObjectIdentifier(view)] = (view, call, name, header)
             // No base URL: the page is self-contained, and must not reach anything.
             view.loadHTMLString(html, baseURL: nil)
         }
+    }
+
+    /// The page it was given, and nowhere from there: not by a refresh written into it, nor in a frame.
+    public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        let given = navigationAction.targetFrame?.isMainFrame == true && navigationAction.request.url?.absoluteString == "about:blank"
+        decisionHandler(given ? .allow : .cancel)
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

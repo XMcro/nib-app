@@ -7,7 +7,7 @@ import { LOOKS_CHANGED } from '../lib/look'
 
 vi.mock('./engine', () => ({ syncOnce: vi.fn(), expireHistory: vi.fn(async () => {}), resetSyncState: vi.fn(), SyncReset: class SyncReset extends Error {} }))
 
-const nothing = { changed: [], full: false, tooLarge: 0, copies: 0, moved: new Map() }
+const nothing = { changed: [], full: false, tooLarge: 0, copies: 0, moved: new Map(), clean: false }
 
 describe('sync while the app is open', () => {
   let passes: number[]

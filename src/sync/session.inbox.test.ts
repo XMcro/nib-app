@@ -23,7 +23,7 @@ vi.mock('./api', async (importOriginal) => ({
   }),
 }))
 
-const nothing = { changed: [], full: false, tooLarge: 0, copies: 0, moved: new Map() }
+const nothing = { changed: [], full: false, tooLarge: 0, copies: 0, moved: new Map(), clean: false }
 const KEYS = { libraryId: 'a-library' } as never
 
 describe('a look, and the library’s inbox', () => {

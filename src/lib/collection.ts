@@ -31,7 +31,7 @@ const KEYS: Record<keyof Collection, string> = {
   trades: 'nib-trades',
 }
 
-/** Sent on the window when this device opens a pack or a present, for sync to send it soon (sync/session). */
+/** Sent on the window a few seconds after this device opens a pack or a present (`keepStamps`), for sync to send it soon (sync/session). */
 export const STAMPS_CHANGED = 'nib-stamps-changed'
 /** Sent when sync brings stamps from another device (lib/collection), for what shows them to read them again. */
 export const STAMPS_SYNCED = 'nib-stamps-synced'
@@ -130,10 +130,28 @@ export function merge(here: Collection, there: Collection): Collection {
 export const sameCollection = (a: Collection, b: Collection) => JSON.stringify(a) === JSON.stringify(b)
 export const emptyCollection = (c: Collection) => !c.stamps.length && !c.book.length && !c.christmas.length && !c.birthday.length && !c.trades.length
 
-/** What this device opened, sold or bought, kept, and said once, however much of it there is, for sync and iCloud to send it soon. */
+/** How long after this device's stamps change it's said (`keepStamps`): past the coins' count and a pack's opening, which the tap that changed them begins. */
+const SOON_MS = 4000
+let saying: ReturnType<typeof setTimeout> | undefined
+
+function say() {
+  clearTimeout(saying)
+  saying = undefined
+  document.removeEventListener('visibilitychange', sayAsPutAway)
+  window.dispatchEvent(new Event(STAMPS_CHANGED))
+}
+const sayAsPutAway = () => document.visibilityState === 'hidden' && say()
+
+/**
+ * What this device opened, sold or bought, kept, and said once, however much of it there is, for sync and iCloud to
+ * send it soon. Not within the tap: iCloud's merge and a whole look by sync then ran before the coins could spring
+ * or the pack tear. A few seconds after the last of it, or at once as Nib is put away, while it can still be sent.
+ */
 export function keepStamps(changed: Partial<Collection>) {
   for (const [name, value] of Object.entries(changed)) writeJson(KEYS[name as keyof Collection], value)
-  window.dispatchEvent(new Event(STAMPS_CHANGED))
+  clearTimeout(saying)
+  saying = setTimeout(say, SOON_MS)
+  document.addEventListener('visibilitychange', sayAsPutAway)
 }
 
 /** Kept as this device's, and said, for what shows the stamps to read them again. */

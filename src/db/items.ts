@@ -58,6 +58,27 @@ export async function listTrash(): Promise<Item[]> {
 }
 
 /**
+ * `rows`, every record just read, with those no write has touched since `before`, the read before it, as the objects
+ * they were then; and `before` itself if that's all of them, in the same order. Dexie hands back the same objects
+ * after a save (db `cache`), but after a write made in a transaction of its own, as sync's are (sync/engine `pull`),
+ * it reads every record afresh: each a new object, so that every cache kept by a body (lib/text, lib/writtenHere,
+ * lib/links) missed and every card redrew, for the one document another device had changed. Told by `rev`, which
+ * every write moves (`nextRev`), and by `version` and `updatedAt` besides, which a backup restored may not share.
+ */
+export function keepSame(before: Item[] | undefined, rows: Item[]): Item[] {
+  if (!before) return rows
+  const had = new Map(before.map((item) => [item.id, item]))
+  let same = rows.length === before.length
+  const kept = rows.map((row, at) => {
+    const was = had.get(row.id)
+    const keep = was && was.rev === row.rev && was.version === row.version && was.updatedAt === row.updatedAt ? was : row
+    if (keep !== before[at]) same = false
+    return keep
+  })
+  return same ? before : kept
+}
+
+/**
  * What `list('note')`, `list('page')` and `listTrash` give, in their orders,
  * from one read of every record (`listAll`). For App's live lists: as three
  * queries, they read the whole library twice over after every save. The

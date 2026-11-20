@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { asCollection, merge, type Collection } from './collection'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { asCollection, keepStamps, merge, STAMPS_CHANGED, type Collection } from './collection'
 
 const a: Collection = {
   stamps: ['2026-11-04', '2026-11-01'],
@@ -98,5 +98,70 @@ describe('merge', () => {
       birthday: [],
       trades: [{ id: 'c', day: '2026-11-04', sold: [2] }],
     })
+  })
+})
+
+// Said within the tap, iCloud's merge and a whole look by sync ran before the coins could spring or the pack tear.
+describe('saying this device’s stamps have changed, for iCloud and sync to send them', () => {
+  let page: EventTarget & { visibilityState: string }
+  let said: number
+  const putAway = () => {
+    page.visibilityState = 'hidden'
+    page.dispatchEvent(new Event('visibilitychange'))
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    const stored = new Map<string, string>()
+    vi.stubGlobal('localStorage', { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => stored.set(k, v) })
+    page = Object.assign(new EventTarget(), { visibilityState: 'visible' })
+    vi.stubGlobal('document', page)
+    const win = new EventTarget()
+    vi.stubGlobal('window', win)
+    said = 0
+    win.addEventListener(STAMPS_CHANGED, () => said++)
+  })
+  afterEach(() => {
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('is a few seconds after the change, not within the tap that made it', () => {
+    keepStamps({ stamps: ['2026-11-17'] })
+    expect(localStorage.getItem('nib-stamps')).toBe('["2026-11-17"]')
+    expect(said).toBe(0)
+    vi.advanceTimersByTime(3999)
+    expect(said).toBe(0)
+    vi.advanceTimersByTime(1)
+    expect(said).toBe(1)
+  })
+
+  it('is once for changes that follow one another: the day’s coins, then its pack', () => {
+    keepStamps({ trades: [] })
+    vi.advanceTimersByTime(3000)
+    keepStamps({ stamps: ['2026-11-17'] })
+    keepStamps({ book: [['2026-11-17', 9]] })
+    vi.advanceTimersByTime(3999)
+    expect(said).toBe(0)
+    vi.advanceTimersByTime(1)
+    expect(said).toBe(1)
+    vi.advanceTimersByTime(60_000)
+    expect(said).toBe(1)
+  })
+
+  it('is at once as Nib is put away, while they can still be sent, and not again after', () => {
+    keepStamps({ stamps: ['2026-11-17'] })
+    putAway()
+    expect(said).toBe(1)
+    vi.advanceTimersByTime(60_000)
+    expect(said).toBe(1)
+  })
+
+  it('says nothing as Nib is put away with nothing changed', () => {
+    keepStamps({ stamps: ['2026-11-17'] })
+    vi.advanceTimersByTime(4000)
+    putAway()
+    expect(said).toBe(1)
   })
 })

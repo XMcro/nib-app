@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { FEEDBACK_MAX, FEEDBACK_MIN } from '../src/lib/reported'
-import { alertPhone, Feedback, feedbackRequests, handleFeedback, INBOX_URL, MOST_KEPT, PER_NETWORK } from './feedback'
+import { ALERT_EVERY_MS, alertPhone, Feedback, feedbackRequests, handleFeedback, INBOX_URL, MOST_KEPT, PER_NETWORK } from './feedback'
 import type { QuotaRequests } from './quota'
 import { sqlite } from './testing'
 
@@ -20,6 +20,7 @@ function server({ fails = false, key = KEY as string | undefined } = {}) {
   const used = new Map<string, number>()
   const names: string[] = []
   let alerts = 0
+  let at = NOW
   const quota = (name: string): QuotaRequests => ({
     used: async () => ({ status: 200, body: { used: used.get(name) ?? 0 } }),
     spend: async (limit, refusal) => {
@@ -35,12 +36,12 @@ function server({ fails = false, key = KEY as string | undefined } = {}) {
       return { status: 200, body: {} }
     },
   })
-  const deps = { inbox, alert: () => void alerts++, quota, secret: 'the-secret', key, now: () => NOW }
+  const deps = { inbox, alert: () => void alerts++, quota, secret: 'the-secret', key, now: () => at }
   const post = (body: unknown, ip = '198.51.100.7') =>
     handleFeedback(new Request(`${ORIGIN}/v1/feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': ip }, body: JSON.stringify(body) }), deps)
   const owner = (method: string, path: string, given: string | null = KEY) => handleFeedback(new Request(`${ORIGIN}${path}`, { method, headers: given === null ? {} : { Authorization: `Bearer ${given}` } }), deps)
   const read = async () => ((await (await owner('GET', '/v1/feedback/messages')).json()) as { messages: Row[] }).messages
-  return { post, owner, read, feedback, deps, used, names, alerts: () => alerts }
+  return { post, owner, read, feedback, deps, used, names, alerts: () => alerts, later: (ms: number) => void (at += ms) }
 }
 
 describe('a feedback message', () => {
@@ -79,7 +80,19 @@ describe('a feedback message', () => {
     for (let i = 0; i < PER_NETWORK; i++) expect((await post(BODY)).status).toBe(200)
     expect((await post(BODY)).status).toBe(429)
     expect(await read()).toHaveLength(PER_NETWORK)
-    expect(alerts()).toBe(PER_NETWORK)
+    expect(alerts()).toBe(1)
+  })
+
+  it('sets off no more than one alert an hour, however many are kept', async () => {
+    const { post, read, alerts, later } = server()
+    for (let i = 0; i < 3; i++) await post(BODY, `198.51.100.${i}`)
+    later(ALERT_EVERY_MS - 1)
+    await post(BODY, '198.51.100.9')
+    expect(alerts()).toBe(1)
+    later(1)
+    await post(BODY, '198.51.100.10')
+    expect(alerts()).toBe(2)
+    expect(await read()).toHaveLength(5)
   })
 
   it('that could not be kept says so, sets off no alert, and does not count against the limit', async () => {
@@ -204,6 +217,28 @@ describe('reading them', () => {
     await post({ ...BODY, text: SECOND })
     expect((await owner('DELETE', '/v1/feedback/messages/1')).status).toBe(204)
     expect((await read()).map((message) => message.id)).toEqual([2])
+  })
+
+  // After a flood, a thousand Deletes by hand is no way to get the inbox back.
+  it('deletes all it was shown at the owner’s word, and none that came since', async () => {
+    const { post, owner, read } = server()
+    for (let i = 0; i < 3; i++) await post(BODY, `198.51.100.${i}`)
+    expect((await owner('DELETE', '/v1/feedback/messages?through=2')).status).toBe(204)
+    expect((await read()).map((message) => message.id)).toEqual([3])
+  })
+
+  it.each(['/v1/feedback/messages', '/v1/feedback/messages?through=', '/v1/feedback/messages?through=abc', '/v1/feedback/messages?through=-1', '/v1/feedback/messages?through=1.5'])('deletes nothing for %s', async (path) => {
+    const { post, owner, read } = server()
+    await post(BODY)
+    expect((await owner('DELETE', path)).status).toBe(404)
+    expect(await read()).toHaveLength(1)
+  })
+
+  it('deletes none of them for anyone without the key', async () => {
+    const { post, owner, read } = server()
+    await post(BODY)
+    expect((await owner('DELETE', '/v1/feedback/messages?through=1', 'not-the-key')).status).toBe(404)
+    expect(await read()).toHaveLength(1)
   })
 
   it.each(['/v1/feedback/messages/abc', '/v1/feedback/messages/1/2', '/v1/feedback/messages/0', '/v1/feedback/messages/-1', '/v1/feedback/messages/'])('deletes nothing for %s', async (path) => {

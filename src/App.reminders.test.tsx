@@ -236,7 +236,9 @@ describe('reminders on a note locked into the vault', () => {
     render(<App />)
     await waitFor(() => expect(device.waiting.map((one) => one.title)).toEqual(['Ferry at 07:40']))
 
-    await act(() => db.items.update('ferry', { vault: { salt: 'A'.repeat(22), sealed: 'B'.repeat(40) }, body: vault.LOCKED_BODY }))
+    // As sync writes it (sync/engine `applyItem`), `version` and `rev` moved: a row with neither moved is kept as it was (items.keepSame).
+    const had = (await items.get('ferry'))!
+    await act(() => db.items.update('ferry', { vault: { salt: 'A'.repeat(22), sealed: 'B'.repeat(40) }, body: vault.LOCKED_BODY, version: had.version + 1, rev: items.nextRev(had) }))
     await waitFor(() => expect(device.waiting.map((one) => one.title)).toEqual(['A locked note']))
   })
 })

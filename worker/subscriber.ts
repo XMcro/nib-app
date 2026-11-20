@@ -27,6 +27,12 @@ export class Subscriber {
     sql.run('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v)')
     sql.run('CREATE TABLE IF NOT EXISTS shares (slug TEXT PRIMARY KEY, expires INTEGER NOT NULL)')
     sql.run('CREATE TABLE IF NOT EXISTS libraries (id TEXT PRIMARY KEY, renewed INTEGER NOT NULL)')
+    // Which claim a place was last counted by, and for a library's, when it was last renewed before that claim took
+    // it afresh (`release`, `releaseLibrary`). Added to subscriptions from before them.
+    const has = (table: string, column: string) => sql.all(`PRAGMA table_info(${table})`).some((one) => one.name === column)
+    if (!has('shares', 'claim')) sql.run('ALTER TABLE shares ADD COLUMN claim INTEGER NOT NULL DEFAULT 0')
+    if (!has('libraries', 'claim')) sql.run('ALTER TABLE libraries ADD COLUMN claim INTEGER NOT NULL DEFAULT 0')
+    if (!has('libraries', 'was')) sql.run('ALTER TABLE libraries ADD COLUMN was INTEGER')
   }
 
   private get(key: string) {
@@ -77,11 +83,20 @@ export class Subscriber {
   admit(slug: string, expires: number, now: number, purchasedAt = 0): boolean {
     this.payingStill(purchasedAt)
     this.sql.run('DELETE FROM shares WHERE expires <= ?', now)
-    if (this.sql.all('SELECT 1 FROM shares WHERE slug = ?', slug).length) return false
+    if (this.sql.all('SELECT 1 FROM shares WHERE slug = ?', slug).length) {
+      // Counted on by this request too: no longer the first one's alone to give back.
+      this.sql.run('UPDATE shares SET claim = claim + 1 WHERE slug = ?', slug)
+      return false
+    }
     const live = Number(this.sql.all('SELECT COUNT(*) AS live FROM shares')[0].live)
     if (live >= MAX_LIVE_SHARES) throw new Refused(429, `You can have ${MAX_LIVE_SHARES} drafts shared at once. Revoke one to share another.`)
-    this.sql.run('INSERT INTO shares (slug, expires) VALUES (?, ?)', slug, expires)
+    this.sql.run('INSERT INTO shares (slug, expires, claim) VALUES (?, ?, 1)', slug, expires)
     return true
+  }
+
+  /** Which claim a share's place was last counted by (`admit`), for the one that took it to give back, and no other. */
+  placeOf(slug: string): number {
+    return Number(this.sql.all('SELECT claim FROM shares WHERE slug = ?', slug)[0]?.claim ?? 0)
   }
 
   /** Keeps the count right when a share's expiry moves. */
@@ -89,8 +104,14 @@ export class Subscriber {
     this.sql.run('UPDATE shares SET expires = ? WHERE slug = ?', expires, slug)
   }
 
-  release(slug: string) {
-    this.sql.run('DELETE FROM shares WHERE slug = ?', slug)
+  /**
+   * A share's place, freed: revoked or expired, whatever counted it; or, by the request that took it and was then
+   * refused, only if no other has counted on it since (`claim`, from `placeOf`). Two at once for one slug: the
+   * second's share was made, the first's refused, and the first gave back the place the second's stood in.
+   */
+  release(slug: string, claim?: number) {
+    if (claim === undefined) this.sql.run('DELETE FROM shares WHERE slug = ?', slug)
+    else this.sql.run('DELETE FROM shares WHERE slug = ? AND claim = ?', slug, claim)
   }
 
   /**
@@ -103,7 +124,8 @@ export class Subscriber {
     const since = now - LIBRARY_IDLE_MS
     const held = this.sql.all('SELECT renewed FROM libraries WHERE id = ?', id)[0]
     if (held && Number(held.renewed) > since) {
-      this.sql.run('UPDATE libraries SET renewed = ? WHERE id = ?', now, id)
+      // Counted on by this request too: no longer an earlier one's alone to give back.
+      this.sql.run('UPDATE libraries SET renewed = ?, claim = claim + 1, was = NULL WHERE id = ?', now, id)
       return false
     }
     const current = Number(this.sql.all('SELECT COUNT(*) AS n FROM libraries WHERE renewed > ? AND id != ?', since, id)[0].n)
@@ -113,12 +135,32 @@ export class Subscriber {
         `One Nib Plus subscription syncs up to ${MAX_LIBRARIES} libraries at a time, and ${MAX_LIBRARIES} others have been in use in the last 60 days. Delete the server copy of one you no longer use, or try again once one has gone 60 days unused.`,
       )
     }
-    this.sql.run('INSERT INTO libraries (id, renewed) VALUES (?, ?) ON CONFLICT (id) DO UPDATE SET renewed = excluded.renewed', id, now)
+    // One gone idle keeps when it was last renewed, to be put back as it was if this claim is refused.
+    this.sql.run(
+      'INSERT INTO libraries (id, renewed, claim, was) VALUES (?, ?, 1, NULL) ON CONFLICT (id) DO UPDATE SET was = renewed, renewed = excluded.renewed, claim = claim + 1',
+      id,
+      now,
+    )
     return true
   }
 
-  releaseLibrary(id: string) {
-    this.sql.run('DELETE FROM libraries WHERE id = ?', id)
+  /** Which claim a library's place was last counted by (`claimLibrary`), for the one that took it to give back, and no other. */
+  claimOf(id: string): number {
+    return Number(this.sql.all('SELECT claim FROM libraries WHERE id = ?', id)[0]?.claim ?? 0)
+  }
+
+  /**
+   * A library's place, freed: deleted from the server, whatever counted it; or, by the request that took it and
+   * was then refused (`claim`, from `claimOf`), given back as that claim found it, and only if no other has
+   * counted on it since. One that had only gone idle goes back to being idle: deleted, it was a library still
+   * paid for that no refund could reach, and one receipt with the wrong code did it.
+   */
+  releaseLibrary(id: string, claim?: number) {
+    if (claim === undefined) return void this.sql.run('DELETE FROM libraries WHERE id = ?', id)
+    const held = this.sql.all('SELECT claim, was FROM libraries WHERE id = ?', id)[0]
+    if (!held || Number(held.claim) !== claim) return
+    if (held.was === null) this.sql.run('DELETE FROM libraries WHERE id = ?', id)
+    else this.sql.run('UPDATE libraries SET renewed = was, was = NULL WHERE id = ?', id)
   }
 
   /**
@@ -159,21 +201,21 @@ export function subscriberRequests(subscriber: Subscriber, clock: () => number =
     entitle: (expiresAt: number, purchasedAt: number) => answered(() => ok({ expiresAt: subscriber.entitle(expiresAt, purchasedAt) })),
     paidTo: (expiresAt: number, purchasedAt: number) => answered(() => ok({ libraries: subscriber.paidTo(expiresAt, purchasedAt) })),
     expiry: () => answered(() => ok(subscriber.expiresAt())),
-    admit: (slug: string, expires: number, purchasedAt: number) => answered(() => ok({ admitted: true, added: subscriber.admit(slug, expires, clock(), purchasedAt) })),
+    admit: (slug: string, expires: number, purchasedAt: number) => answered(() => ok({ admitted: true, added: subscriber.admit(slug, expires, clock(), purchasedAt), claim: subscriber.placeOf(slug) })),
     extend: (slug: string, expires: number) =>
       answered(() => {
         subscriber.extend(slug, expires)
         return ok({ extended: true })
       }),
-    release: (slug: string) =>
+    release: (slug: string, claim?: number) =>
       answered(() => {
-        subscriber.release(slug)
+        subscriber.release(slug, claim)
         return ok({ released: true })
       }),
-    claimLibrary: (id: string, purchasedAt: number) => answered(() => ok({ added: subscriber.claimLibrary(id, clock(), purchasedAt) })),
-    releaseLibrary: (id: string) =>
+    claimLibrary: (id: string, purchasedAt: number) => answered(() => ok({ added: subscriber.claimLibrary(id, clock(), purchasedAt), claim: subscriber.claimOf(id) })),
+    releaseLibrary: (id: string, claim?: number) =>
       answered(() => {
-        subscriber.releaseLibrary(id)
+        subscriber.releaseLibrary(id, claim)
         return ok({ released: true })
       }),
     revoke: (through: number) => answered(() => ok(subscriber.revoke(through))),

@@ -25,6 +25,28 @@ describe('the front door', () => {
     expect(await (await answer(path)).text()).toBe(route)
   })
 
+  // The owner's page of feedback keeps its key in the sync address's storage: a stranger's draft, drawn there, is one bug from reading it.
+  it('serves no reader page at the address Nib syncs with', async () => {
+    const there = await frontDoor(new Request(`https://sync.nibprivacy.com/d/${SLUG}`), routes)
+    expect(await there.text()).toBe('assets')
+    expect(await (await frontDoor(new Request(`https://share.nibprivacy.com/d/${SLUG}`), routes)).text()).toBe(READER_PAGE)
+  })
+
+  // The zone's own rules added these at nibprivacy.com; the workers.dev address earlier Nibs sync with sent none.
+  it('sends every answer with the headers that keep it out of a frame and off plain HTTP, and keeps a page’s own', async () => {
+    for (const path of ['/v1/status', '/privacy', `/d/${SLUG}`, '/v1/shares']) {
+      const { headers } = await answer(path)
+      expect(headers.get('X-Content-Type-Options'), path).toBe('nosniff')
+      expect(headers.get('Referrer-Policy'), path).toBe('no-referrer')
+      expect(headers.get('X-Frame-Options'), path).toBe('DENY')
+      expect(headers.get('Strict-Transport-Security'), path).toMatch(/max-age=\d+/)
+    }
+    expect((await answer(`/d/${SLUG}`)).headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'")
+    const own = { ...routes, assets: async () => new Response('page', { status: 404, headers: { 'Referrer-Policy': 'same-origin' } }) } as Routes
+    const kept = await frontDoor(new Request('https://nib.test/privacy'), own)
+    expect([kept.status, kept.headers.get('Referrer-Policy')]).toEqual([404, 'same-origin'])
+  })
+
   it('serves the reader page, and only by GET', async () => {
     expect(await (await answer(`/d/${SLUG}`)).text()).toBe(READER_PAGE)
     expect(await (await answer(`/d/${SLUG}`, 'POST')).text()).toBe('assets')

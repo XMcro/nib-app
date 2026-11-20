@@ -12,7 +12,7 @@ vi.mock('./engine', () => ({ syncOnce: vi.fn(), expireHistory: vi.fn(async () =>
 vi.mock('./files', () => ({ syncFiles: vi.fn(), fetchFile: vi.fn() }))
 vi.mock('../lib/originals', () => ({ fetchOriginalsWith: vi.fn() }))
 
-const nothing = { changed: [], full: false, tooLarge: 0, copies: 0, moved: new Map() }
+const nothing = { changed: [], full: false, tooLarge: 0, copies: 0, moved: new Map(), clean: false }
 const KEYS = { libraryId: 'a-library' } as never
 
 describe('a look, and the library’s files', () => {

@@ -10,7 +10,7 @@ vi.mock('./platform', async (importOriginal) => ({
 
 const store = vi.hoisted(() => ({
   entitlement: vi.fn(),
-  addListener: vi.fn(async () => ({ remove: async () => {} })),
+  addListener: vi.fn(async (_event: string, _listener: (next: unknown) => void) => ({ remove: async () => {} })),
 }))
 vi.mock('@capacitor/core', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@capacitor/core')>()),
@@ -30,6 +30,32 @@ describe('usePlus', () => {
 
     act(() => document.dispatchEvent(new Event('visibilitychange')))
     await waitFor(() => expect(result.current[0].active).toBe(false))
+  })
+
+  // The plugin answers from the device's own record, at once, and asks the App Store whether Plus renews only after
+  // (ios NibStorePlugin `learnRenewal`): the day's coins wait for the first, and Billing's line for the second.
+  it('knows Plus by the first answer, and takes whether it renews when the App Store says, after', async () => {
+    store.entitlement.mockResolvedValueOnce({ active: true, expiresAt: 60_000 })
+    const { result } = renderHook(() => usePlus())
+    await waitFor(() => expect(result.current[2]).toBe(true))
+    expect(result.current[0]).toEqual({ active: true, expiresAt: 60_000 })
+
+    const said = store.addListener.mock.calls.find(([event]) => event === 'entitlementChanged')![1]
+    act(() => said({ active: true, expiresAt: 60_000, willRenew: false }))
+    expect(result.current[0].willRenew).toBe(false)
+  })
+
+  // Asked each time Nib comes back, and a new object each time had the whole app drawn again for nothing.
+  it('keeps what it had when the App Store says the same again', async () => {
+    store.entitlement.mockImplementation(async () => ({ active: true, productId: 'app.nib.plus.yearly', expiresAt: 60_000, jws: 'signed' }))
+    const { result } = renderHook(() => usePlus())
+    await waitFor(() => expect(result.current[0].active).toBe(true))
+    const had = result.current[0]
+
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    await waitFor(() => expect(store.entitlement).toHaveBeenCalledTimes(2))
+    await act(async () => {})
+    expect(result.current[0]).toBe(had)
   })
 
   // Asked again only on coming back to the front, a Mac left open kept Plus past its end.

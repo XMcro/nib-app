@@ -169,8 +169,10 @@ export async function handleCoins(request: Request, deps: CoinDeps): Promise<Res
     // The network by a hash keyed with the Worker's secret, so a list of them can't be turned back into addresses.
     const networks = await networksOf(request, deps.admin, 'nib-coins-network', (network, wide) => (wide ? `wide ${network}` : network))
     // Before the one object every code is kept in, which made-up codes reach as readily as real ones. A limiter that fails stops nobody.
-    const limited = await deps.limiter?.limit({ key: networks[0] }).catch(() => null)
-    if (limited?.success === false) return answer({ status: COIN_REFUSED['too many'], body: { error: 'too many' } })
+    // By the address or its /64, and by the wider network round it: by the first alone, a block of addresses
+    // guessed at as many times over as it had addresses (the red-team review of 2026-11-17).
+    const limited = await Promise.all(networks.map((key) => deps.limiter?.limit({ key }).catch(() => null)))
+    if (limited.some((one) => one?.success === false)) return answer({ status: COIN_REFUSED['too many'], body: { error: 'too many' } })
     const redeemed = await deps.coins.redeem(body.code, body.claim, networks)
     if (redeemed.status !== 200 || !deps.signingKey) return answer(redeemed)
     // Signed, so coins that didn't come from here (a proxy on the device, say) aren't believed.

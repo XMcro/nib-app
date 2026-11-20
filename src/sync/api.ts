@@ -50,14 +50,62 @@ const encoder = new TextEncoder()
 const enrolledKey = (libraryId: string) => `nib-sync-enrolled-${libraryId}`
 
 /**
+ * The most an answer may be. The largest the server gives are a sealed file (`MAX_SEALED_FILE`, 27 MB) and a page of
+ * changes (8 MB and the one record that takes it past that).
+ */
+export const MOST_ANSWER = 32_000_000
+
+/**
+ * An answer's bytes, read only as far as `most`. Read whole whatever its size, one of gigabytes, from a server gone
+ * wrong or from whoever sat between, ended the page; which loaded again, asked again, and ended again (the red-team
+ * review of 2026-11-17).
+ */
+export async function within(response: Response, most: number): Promise<Uint8Array<ArrayBuffer>> {
+  const tooLarge = () => new Error('The sync server’s answer was too large.')
+  if (Number(response.headers.get('Content-Length')) > most) throw tooLarge()
+  const reader = response.body?.getReader()
+  if (!reader) return new Uint8Array(0)
+  const parts: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.length
+    if (size > most) {
+      void reader.cancel().catch(() => {})
+      throw tooLarge()
+    }
+    parts.push(value)
+  }
+  const whole = new Uint8Array(size)
+  let at = 0
+  for (const part of parts) {
+    whole.set(part, at)
+    at += part.length
+  }
+  return whole
+}
+
+/** What an answer says, as JSON; nothing, if it isn't that. */
+function said(bytes: Uint8Array): object {
+  try {
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes))
+    return value && typeof value === 'object' ? value : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
  * Signed where this device can sign (keys.sign): nothing in a request is the
  * secret, which one caught in passing could be sent again with. The server
  * is given the key's public half the first time it asks for it, and only
  * then: once this device has a key there, the server has no reason to ask, and
  * a reply that does is someone on the way after the secret, which isn't sent.
  * A device that can't sign sends the secret in each request, the old way.
+ * `ending`: what ends a request under way, if anything is to (sync/session).
  */
-export function httpApi(base: string, keys: SyncKeys): Api {
+export function httpApi(base: string, keys: SyncKeys, ending?: () => AbortSignal | undefined): Api {
   /**
    * `enrol`: the old way, signed too, to prove this device holds the key it
    * gives. A body of bytes is a file (worker/files): sent as it is, with its
@@ -79,9 +127,9 @@ export function httpApi(base: string, keys: SyncKeys): Api {
       headers['X-Nib-Time'] = String(time)
       headers['X-Nib-Signature'] = base64url(new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, keys.sign!.key, encoder.encode(message))))
     }
-    const response = await fetch(`${base}${path}`, { method, headers, body: file ?? text })
+    const response = await fetch(`${base}${path}`, { method, headers, body: file ?? text, signal: ending?.() })
     const answersFile = response.ok && response.headers.get('Content-Type') === 'application/octet-stream'
-    return { response, json: (answersFile ? {} : await response.json().catch(() => ({}))) as { error?: string; code?: string } }
+    return { response, json: (answersFile ? {} : said(await within(response, MOST_ANSWER))) as { error?: string; code?: string } }
   }
 
   function answer<T>({ response, json }: Awaited<ReturnType<typeof send>>): T {
@@ -129,7 +177,7 @@ export function httpApi(base: string, keys: SyncKeys): Api {
       const sent = await sending('GET', `/v1/files/${key}`)
       if (sent.response.status === 404) return null
       answer(sent)
-      return new Uint8Array(await sent.response.arrayBuffer())
+      return within(sent.response, MOST_ANSWER)
     },
     deleteFile: (key) => call('DELETE', `/v1/files/${key}`),
     inbox: () => call('GET', '/v1/inbox'),

@@ -1,6 +1,7 @@
 import Foundation
 import Capacitor
 import UIKit
+import WebKit
 #if targetEnvironment(macCatalyst)
 import ServiceManagement
 #endif
@@ -28,6 +29,21 @@ public class NibWindowPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// The current choice, for the View → Appearance checkmark (AppDelegate).
     static var theme = "system"
+
+    /// What the window's web view may be taken to (asked of every plugin by
+    /// Capacitor, before its own rules): of the app's own address, the one
+    /// page Nib is, and in a frame nothing. Left to Capacitor, any file under
+    /// that address could be loaded as a page with the bridge, the app's
+    /// stored files among them (`/_capacitor_file_/…`, and a file with no
+    /// extension, as an attachment is kept, is read as HTML), and so could
+    /// anything in a frame. Nib's page never goes anywhere and has no frames
+    /// (the red-team review of 2026-11-17). A link out, to the browser or
+    /// Mail, is still Capacitor's to hand to the system.
+    override public func shouldOverrideLoad(_ navigationAction: WKNavigationAction) -> NSNumber? {
+        if let frame = navigationAction.targetFrame, !frame.isMainFrame { return true }
+        guard let url = navigationAction.request.url, let page = bridge?.config.serverURL, url.scheme == page.scheme else { return nil }
+        return url.host == page.host && ["", "/", "/index.html"].contains(url.path) ? nil : true
+    }
 
     @objc func setTheme(_ call: CAPPluginCall) {
         let theme = call.getString("theme") ?? "system"

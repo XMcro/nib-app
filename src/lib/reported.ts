@@ -54,5 +54,13 @@ export type Device = (typeof DEVICES)[number]
 export const FEEDBACK_MIN = 200
 export const FEEDBACK_MAX = 4000
 
+/**
+ * The Nib this is built with, as package.json has it (worker/counts.test.ts checks they agree), and the first that
+ * sent counts: the server takes counts from the one to a few past the other (worker/counts), and from no version
+ * anyone cares to make up.
+ */
+export const LATEST = '1.10.12'
+export const FIRST_COUNTED = '1.10.10'
+
 /** A version as Nib writes it, 1.10.09 for one. */
 export const VERSION = /^\d{1,3}(\.\d{1,3}){0,2}$/

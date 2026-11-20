@@ -246,6 +246,16 @@ export async function verifySigned(jws: string, { roots, now = Date.now(), allow
   return payload
 }
 
+/**
+ * What a transaction that expires at `expiresDate` pays to, by the environment it names. Sandbox and TestFlight
+ * purchases cost nothing, and App Review buys with them: accepted, but for a day at most, and with no grace. Every
+ * check adds GRACE_MS to an expiry, so it is taken off here, once. Anything not named Production is paid for the
+ * same, a transaction naming none included. The one rule for a receipt and for what the App Store tells of one
+ * (worker/notifications): told of a Sandbox renewal, a library was paid to its whole length, grace and all.
+ */
+export const paidUntil = (expiresDate: number, environment: unknown, now: number) =>
+  environment === 'Production' ? expiresDate : Math.min(expiresDate, now + SANDBOX_MS) - GRACE_MS
+
 /** A transaction from the App Store: verified (`verifySigned`), for this app's subscription, and neither refunded nor revoked. */
 export async function verifyTransaction(jws: string, trust: Trust): Promise<Claims> {
   const payload = await verifySigned(jws, trust)
@@ -256,15 +266,10 @@ export async function verifyTransaction(jws: string, trust: Trust): Promise<Clai
   if (typeof payload.expiresDate !== 'number' || typeof payload.purchaseDate !== 'number' || typeof payload.originalTransactionId !== 'string') {
     fail('not a subscription')
   }
-  // Sandbox and TestFlight purchases cost nothing, and App Review buys with
-  // them: accepted, but for a day at most, and with no grace. Every check
-  // adds GRACE_MS to an expiry, so it is taken off here, once. Anything not
-  // named Production is paid for the same, a receipt naming none included.
-  const sandbox = payload.environment !== 'Production'
   return {
     productId: payload.productId as string,
     originalTransactionId: payload.originalTransactionId,
-    expiresAt: sandbox ? Math.min(payload.expiresDate, now + SANDBOX_MS) - GRACE_MS : payload.expiresDate,
+    expiresAt: paidUntil(payload.expiresDate, payload.environment, now),
     purchasedAt: payload.purchaseDate,
     environment: String(payload.environment),
   }

@@ -1,0 +1,8 @@
+# The static files here (the landing page, the privacy policy, the reader's script) are served without the Worker
+# running, so what it adds to its own answers (worker/door.ts ON_EVERY_ANSWER) never reaches them: said here, the
+# same four. On nibprivacy.com's hosts the zone sends them as well; on the workers.dev address nothing else does.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Strict-Transport-Security: max-age=15552000; includeSubDomains

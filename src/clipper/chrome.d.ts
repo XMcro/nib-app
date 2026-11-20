@@ -11,7 +11,13 @@ declare namespace chrome {
     const onMessage: { addListener(listener: (message: unknown, sender: Sender, respond: (answer: unknown) => void) => boolean | void): void }
   }
   namespace storage {
-    const local: { get(key: string): Promise<Record<string, unknown>>; set(items: Record<string, unknown>): Promise<void>; remove(key: string): Promise<void> }
+    const local: {
+      get(key: string): Promise<Record<string, unknown>>
+      set(items: Record<string, unknown>): Promise<void>
+      remove(key: string): Promise<void>
+      /** Who may read it: not in every browser. */
+      setAccessLevel?(level: { accessLevel: 'TRUSTED_CONTEXTS' | 'TRUSTED_AND_UNTRUSTED_CONTEXTS' }): Promise<void>
+    }
   }
   namespace tabs {
     type Tab = { id?: number; title?: string; url?: string }

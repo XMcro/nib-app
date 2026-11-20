@@ -103,6 +103,20 @@ describe('sync API', () => {
   })
 
   // One receipt paid for any number of libraries.
+  // The receipt took the idle library's place afresh, the wrong code was refused, and the refusal gave the place
+  // back by deleting it: the library stayed paid for, on no subscription's list.
+  it('leaves a library gone idle its place when a receipt comes for it with the wrong code', async () => {
+    const call = server()
+    expect((await call('/v1/library', post({ jws: 'signed' }))).status).toBe(200)
+    const subscriber = call.subscribers.get(await sha256('o'))!
+    // Not renewed in more than 60 days.
+    subscriber.releaseLibrary(ID)
+    subscriber.claimLibrary(ID, Date.now() - 61 * 86_400_000, PURCHASED)
+    const wrong = { Authorization: `Bearer ${ID}.${'B'.repeat(43)}` }
+    expect((await call('/v1/entitlement', { ...post({ jws: 'signed' }), headers: wrong })).status).toBe(401)
+    expect(subscriber.paidTo(Date.now() + 86_400_000, PURCHASED)).toEqual([ID])
+  })
+
   it(`syncs at most ${MAX_LIBRARIES} libraries on one subscription, and deleting one frees its place`, async () => {
     const call = server()
     const as = (i: number) => ({ Authorization: `Bearer ${String(i).padStart(32, '0')}.${SECRET}` })
@@ -240,14 +254,14 @@ describe('sync API', () => {
 
   describe('signed', () => {
     const base64url = (bytes: ArrayBuffer) => Buffer.from(bytes).toString('base64url')
-    async function device() {
+    async function device(id = ID) {
       const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair
       const publicKey = base64url(await crypto.subtle.exportKey('raw', pair.publicKey))
       /** A request as the app signs it; `as` sends it somewhere else than it was signed for. */
-      const signed = async (method: string, path: string, body?: unknown, { authorization = `Signed ${ID}`, as = path } = {}): Promise<[string, RequestInit]> => {
+      const signed = async (method: string, path: string, body?: unknown, { authorization = `Signed ${id}`, as = path } = {}): Promise<[string, RequestInit]> => {
         const text = body === undefined ? undefined : JSON.stringify(body)
         const time = Date.now()
-        const message = signedMessage({ id: ID, method, path, time, bodyHash: await bodyHash(new TextEncoder().encode(text ?? '')) })
+        const message = signedMessage({ id, method, path, time, bodyHash: await bodyHash(new TextEncoder().encode(text ?? '')) })
         const signature = base64url(await crypto.subtle.sign({ name: 'Ed25519' }, pair.privateKey, new TextEncoder().encode(message)))
         return [as, { method, body: text, headers: { Authorization: authorization, 'X-Nib-Time': String(time), 'X-Nib-Signature': signature } }]
       }
@@ -310,6 +324,60 @@ describe('sync API', () => {
       const refused = await call('/v1/changes', { method: 'POST', body: endless, duplex: 'half', headers } as RequestInit)
       expect(refused.status).toBe(429)
       expect(pulled.n).toBeLessThan(3)
+    })
+
+    // One count for a network's bad pushes, whichever library they named: twenty to a stranger's own library, and
+    // no one sharing the address (an office, a café, a carrier) could send a signed push to theirs till the day was out.
+    it('refuses none to another library for the bad pushes sent to one from the same network', async () => {
+      const call = server()
+      const me = await enrolled(call)
+      const OTHER = 'fedcba9876543210fedcba9876543210'
+      const bearer = { Authorization: `Bearer ${OTHER}.${SECRET}` }
+      const theirs = await device(OTHER)
+      expect((await call('/v1/library', { ...post({ jws: 'receipt' }), headers: bearer })).status).toBe(200)
+      expect((await call(...(await theirs.signed('POST', '/v1/key', { key: theirs.publicKey }, { authorization: bearer.Authorization })))).status).toBe(200)
+      const push = { records: [{ k: KEY, p: 'AAAA' }] }
+      const stranger = await device(OTHER)
+      for (let n = 0; n < BAD_PUSHES_PER_NETWORK; n++) expect((await call(...(await stranger.signed('POST', '/v1/changes', push)))).status).toBe(401)
+      // That library's own are refused now, as before; mine aren't.
+      expect((await call(...(await theirs.signed('POST', '/v1/changes', push)))).status).toBe(429)
+      expect((await call(...(await me.signed('POST', '/v1/changes', push)))).status).toBe(200)
+    })
+
+    // Good for the minutes its time allowed, with nothing to say it had been used: caught in passing, one could
+    // be sent again, to end an inbox made anew since, or turn signed-only back off (the red-team review of 2026-11-17).
+    it('takes a signed request that changes something once, and one that only reads as often as it’s sent', async () => {
+      const call = server()
+      const me = await enrolled(call)
+      const on = await me.signed('POST', '/v1/signed-only', { on: true })
+      expect((await call(...on)).status).toBe(200)
+      expect((await call(...(await me.signed('POST', '/v1/signed-only', { on: false })))).status).toBe(200)
+      // Sent again, the first is refused, and signed-only stays off.
+      const again = await call(...on)
+      expect(again.status).toBe(401)
+      expect(await (await call(...(await me.signed('GET', '/v1/status')))).json()).toMatchObject({ signedOnly: false })
+      // A push asks the library twice over, as one request: taken. The same again isn't.
+      const push = await me.signed('POST', '/v1/changes', { records: [{ k: KEY, p: 'AAAA' }] })
+      expect((await call(...push)).status).toBe(200)
+      expect((await call(...push)).status).toBe(401)
+      const read = await me.signed('GET', '/v1/changes?since=0')
+      expect((await call(...read)).status).toBe(200)
+      expect((await call(...read)).status).toBe(200)
+    })
+
+    // The code's hash, which a request caught in passing carries, could put another key in the library's place and
+    // then require signed requests: every device of the writer's refused from then on, with nothing in the app to
+    // undo it. Every device derives the one key from the code, so a different one is never a device's.
+    it('keeps the key it has against another sent by the code’s hash alone', async () => {
+      const call = server()
+      const me = await enrolled(call)
+      const someone = await device()
+      const taken = await call(...(await someone.signed('POST', '/v1/key', { key: someone.publicKey }, { authorization: AUTH.Authorization })))
+      expect(taken.status).toBe(409)
+      // Theirs opens nothing, mine goes on working, and a second device with the same key enrols as ever.
+      expect((await call(...(await someone.signed('POST', '/v1/signed-only', { on: true })))).status).toBe(401)
+      expect((await call(...(await me.signed('GET', '/v1/status')))).status).toBe(200)
+      expect((await call(...(await me.signed('POST', '/v1/key', { key: me.publicKey }, { authorization: AUTH.Authorization })))).status).toBe(200)
     })
 
     it('takes a key only from a device that proves it holds it', async () => {

@@ -56,7 +56,8 @@ export function useUnprompted({
   const [cloudLooked, setCloudLooked] = useState(!nativeApp)
   useEffect(() => (nativeApp ? keepInCloud(() => setCloudLooked(true)) : undefined), [])
   const [syncLooked, setSyncLooked] = useState(false)
-  const lookedNow = cloudLooked && sync.known && (!sync.code || ['synced', 'offline', 'error', 'inactive'].includes(sync.status.state))
+  // Nor waited for where sync won't look by itself: only when asked ('manual'), or another tab's to do ('elsewhere').
+  const lookedNow = cloudLooked && sync.known && (!sync.code || ['synced', 'offline', 'error', 'inactive', 'manual', 'elsewhere'].includes(sync.status.state))
   useEffect(() => {
     if (syncLooked || !nativeApp) return
     if (lookedNow) return setSyncLooked(true)
@@ -114,10 +115,13 @@ export function useUnprompted({
   // Then what Nib asks once (lib/feedback): at most one a launch, after the day's coins and pack, a few seconds in, at a
   // pause, and not with the caret in the text. Looked at again once the Keychain has answered: something may have come up.
   // Each started afresh as what was up goes, so the next never comes in less than a tick.
+  // The library read, not the library: it's read again with every save, and each began the wait below afresh.
+  const read = listed !== undefined
   useEffect(() => {
+    if (!nativeApp || !read || !syncLooked || coinsOpen || packOpen || held) return
+    // Seen only now: come back to while something held all this, it was taken as seen then, and the keyboard never put away.
     const back = fronts !== frontsSeen.current
     frontsSeen.current = fronts
-    if (!nativeApp || !listed || !syncLooked || coinsOpen || packOpen || held) return
     const next = coinsDue
       ? plusKnown && coinsOffered.current !== today
         ? 'coins'
@@ -140,8 +144,10 @@ export function useUnprompted({
     if (back && touchApp && (next === 'coins' || next === 'pack') && caretInText()) (document.activeElement as HTMLElement).blur()
     let live = true
     let ticks = 0
+    // The pack after the day's coins is the one arrival with them: not held as a third, whatever came up before the coins.
+    const arrival = next === 'pack' && coinsOffered.current === today
     const timer = setInterval(() => {
-      if (next === 'ask' ? ++ticks < 5 || !clearToAsk() : !quiet()) return
+      if (next === 'ask' ? ++ticks < 5 || !clearToAsk() : !quiet(arrival)) return
       clearInterval(timer)
       if (next !== 'ask') return bring(next)
       void askDue().then((due) => {
@@ -157,7 +163,7 @@ export function useUnprompted({
       live = false
       clearInterval(timer)
     }
-  }, [listed, syncLooked, plusKnown, coinsDue, packWaiting, today, firsts.begun, firsts.earned, firsts.celebrating, asking, offeringDaily, dailyDue, coinsOpen, packOpen, held, fronts])
+  }, [read, syncLooked, plusKnown, coinsDue, packWaiting, today, firsts.begun, firsts.earned, firsts.celebrating, asking, offeringDaily, dailyDue, coinsOpen, packOpen, held, fronts])
 
   return {
     coinsOpen,

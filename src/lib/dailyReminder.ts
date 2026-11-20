@@ -38,13 +38,28 @@ export function dailyTimes(time: string, now: number, openedToday: boolean): { i
   return times
 }
 
-/** Every daily reminder waiting replaced with these; none, for `time` null. Throws ReminderError when notifications are off for Nib. */
-async function reschedule(time: string | null, openedToday: boolean) {
-  const { reminders } = await reminderPlugin.list()
-  const waiting = reminders.map((reminder) => reminder.id).filter((id) => id.startsWith(DAILY))
-  if (waiting.length) await reminderPlugin.cancel({ ids: waiting })
-  if (time === null) return
-  for (const { id, at } of dailyTimes(time, Date.now(), openedToday)) await setReminder(id, at, DAILY_TITLE)
+/** One at a time (`reschedule`). */
+let turn: Promise<unknown> = Promise.resolve()
+
+/**
+ * The daily reminders waiting made these; none, for `time` null. Throws ReminderError when notifications are off for Nib.
+ * Only what differs is touched: those already waiting at their times are left, where every one was taken off and set
+ * again, sixteen calls each time Nib came to the front. And one at a time: as a new day begins two are asked for at
+ * once, and each could take off what the other had just set.
+ */
+function reschedule(time: string | null, openedToday: boolean): Promise<void> {
+  const mine = turn.then(async () => {
+    const { reminders } = await reminderPlugin.list()
+    const waiting = new Map(reminders.filter((reminder) => reminder.id.startsWith(DAILY)).map((reminder) => [reminder.id, reminder.at]))
+    const wanted = time === null ? [] : dailyTimes(time, Date.now(), openedToday)
+    // The device says its times to the second.
+    const there = new Set(wanted.filter(({ id, at }) => Math.abs((waiting.get(id) ?? NaN) - at) < 1000).map(({ id }) => id))
+    const gone = [...waiting.keys()].filter((id) => !there.has(id))
+    if (gone.length) await reminderPlugin.cancel({ ids: gone })
+    for (const { id, at } of wanted) if (!there.has(id)) await setReminder(id, at, DAILY_TITLE)
+  })
+  turn = mine.catch(() => {})
+  return mine
 }
 
 /** Offered already, whatever the answer, or set in Settings without being offered. */

@@ -94,8 +94,9 @@ export async function createShare(
     ? { slug, key, owner, createdAt: now, expiresAt: 0, ...(password ? { password } : {}), ...(once ? { once: true } : {}) }
     : { slug, key, owner, createdAt: now, expiresAt: 0, free: true }
   const doc = await seal(await sealKey(share), slug, 'doc', snapshot(item))
-  // One to be read once is handed over only for a token from the link's key (src/share/crypto `revealToken`).
-  const reveal = once && jws ? { once: true, reveal: await revealCheck(await revealToken(key, slug)) } : {}
+  // One to be read once is handed over only for a token from the key that opens it (src/share/crypto `revealToken`):
+  // the link's, or with a password the one the two make, so that the link alone can't have it handed over, and deleted.
+  const reveal = once && jws ? { once: true, reveal: await revealCheck(await revealToken(await sealKey(share), slug)) } : {}
   const body = jws ? { slug, jws, days, doc, ...reveal } : { slug, days: FREE_DAYS, doc }
   const { expiresAt } = await call<{ expiresAt: number }>('/v1/shares', { method: 'POST', owner, body: JSON.stringify(body) })
   return { ...share, expiresAt }

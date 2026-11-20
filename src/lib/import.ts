@@ -211,6 +211,10 @@ const MARKS = /[*_~[]/g
 const MAX_INDENT = 64
 /** What starts a line and is not emphasis: quote markers, indentation, a bullet, and a checklist's box. */
 const PREFIX = /^(?:[ \t]*>)*[ \t]*(?:[*+-][ \t]+(?:\[[ xX]\][ \t]+)?)?/
+/** Deeper than anyone quotes or lists on one line: as many markers as MAX_INDENT is levels. */
+const MAX_NEST = 32
+/** One more level down, at a line's start: a quote's `>`, a bullet, or a number. */
+const MARKER = /[ \t]*(?:>|(?:[*+-]|\d{1,9}[.)])[ \t]+)/y
 /** A `***` or `___` rule, which escaped would read as text. */
 const RULE = /^ {0,3}([*_-])(?:[ \t]*\1){2,}[ \t]*$/
 
@@ -222,7 +226,10 @@ const RULE = /^ {0,3}([*_-])(?:[ \t]*\1){2,}[ \t]*$/
  * escaped, and read as the characters they are; bullets
  * and rules, which are not emphasis, are left to mean what they did. And its
  * lists grow costly with their depth: 700 levels deep, an import failed.
- * Indentation past MAX_INDENT is held to it. Code fences are left as written.
+ * Indentation past MAX_INDENT is held to it. And it follows each quote or list
+ * marker at a line's start a level down, with no end to it: 3,000 `>` on a
+ * line, and it ran out of stack. Past MAX_NEST they are escaped, and read as
+ * the characters they are. Code fences are left as written.
  */
 function tame(markdown: string): string {
   const lines = markdown.split('\n')
@@ -234,7 +241,8 @@ function tame(markdown: string): string {
     if (marks > MAX_MARKS) {
       for (const i of paragraph) {
         const text = prose(lines[i])
-        lines[i] = lines[i].slice(0, lines[i].length - text.length) + text.replace(MARKS, '\\$&')
+        // Not one escaped already, as a marker past MAX_NEST is (`nested`): escaped again, its backslash would be the text and it a mark once more.
+        lines[i] = lines[i].slice(0, lines[i].length - text.length) + text.replace(/\\[\s\S]|[*_~[]/g, (mark) => (mark.length > 1 ? mark : `\\${mark}`))
       }
     }
     paragraph = []
@@ -252,10 +260,25 @@ function tame(markdown: string): string {
     }
     if (!line.trim()) return close()
     if (/^[ \t]{65}/.test(line)) lines[i] = line.replace(/^[ \t]+/, ' '.repeat(MAX_INDENT))
+    if (!RULE.test(lines[i])) lines[i] = nested(lines[i])
     paragraph.push(i)
   })
   close()
   return lines.join('\n')
+}
+
+/** `line` with no more than MAX_NEST quote and list markers at its start: any after those are escaped, each one, up to the line's first word. */
+function nested(line: string): string {
+  MARKER.lastIndex = 0
+  for (let depth = 0; depth < MAX_NEST; depth++) if (!MARKER.test(line)) return line
+  const kept = MARKER.lastIndex
+  let [escaped, from] = ['', kept]
+  for (let marker = MARKER.exec(line); marker; marker = MARKER.exec(line)) {
+    // The marker itself, or a number's `.` or `)`: escaped, it's no marker.
+    escaped += marker[0].replace(/[>*+\-.)](?=[ \t]*$)/, '\\$&')
+    from = MARKER.lastIndex
+  }
+  return line.slice(0, kept) + escaped + line.slice(from)
 }
 
 /** HTML becomes editor JSON on Nib's own schema. */

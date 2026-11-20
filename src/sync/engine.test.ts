@@ -1291,3 +1291,87 @@ describe('fetching everything again', () => {
   })
 })
 
+
+// The session's word (sync/session): nothing written in the documents here since a look that sent them all.
+describe('a look with the documents said to be unchanged', () => {
+  const later = () => Date.now() + 10 * MINUTE
+
+  it('says whether the documents have all been sent: not while a version still waits to settle', async () => {
+    await items.create('note', doc('First'))
+    expect((await syncOnce(keys, server.api)).clean).toBe(false)
+    expect((await syncOnce(keys, server.api, later())).clean).toBe(true)
+  })
+
+  it('reads none of them: nothing sent again, and none taken for gone', async () => {
+    const id = await items.create('note', doc('First'))
+    await items.create('page', doc('A page'))
+    await syncOnce(keys, server.api, later())
+    const live = liveOnServer()
+    // Behind the session's back, to show they aren't read.
+    await items.update(id, doc('Changed'))
+    const sent = countSent()
+    const result = await syncOnce(keys, server.api, later(), true)
+    expect(sent.records).toBe(0)
+    expect(result.clean).toBe(true)
+    expect(liveOnServer()).toBe(live)
+    expect(plainText(((await serverItem(id)) as Item).body)).toBe('First')
+    await syncOnce(keys, server.api, later())
+    expect(plainText(((await serverItem(id)) as Item).body)).toBe('Changed')
+  })
+
+  // Found by the red-team review of 2026-11-17, in this very rule: an answer that left a record out still counted
+  // as all sent, and with the documents then said to be unchanged, that record waited for the next thing written.
+  it('doesn’t say all is sent when the server’s answer to a push leaves a record out', async () => {
+    await items.create('note', doc('First'))
+    await items.create('note', doc('Second'))
+    const pushes = server.api.push
+    server.api.push = async (batch) => ({ results: (await pushes(batch)).results.slice(1) })
+    expect((await syncOnce(keys, server.api, later())).clean).toBe(false)
+    // Asked again, as any look not clean is: answered in full, it settles.
+    server.api.push = pushes
+    await syncOnce(keys, server.api, later())
+    expect((await syncOnce(keys, server.api, later())).clean).toBe(true)
+  })
+
+  it('reads them all the same when the look brought something from the server: the past handed back is sent over again', async () => {
+    const id = await items.create('note', doc('First'))
+    await syncOnce(keys, server.api, later())
+    const here = (await items.get(id))!
+    await otherDevice({ id, kind: 'note', body: doc('The past'), createdAt: here.createdAt, updatedAt: here.updatedAt }, 1)
+    await syncOnce(keys, server.api, later(), true)
+    expect(await text(id)).toBe('First')
+    expect(plainText(((await serverItem(id)) as Item).body)).toBe('First')
+  })
+})
+
+// The red-team review of 2026-11-17: whatever number an answer gave to resume from was kept, so one answer from a
+// server gone wrong (or from whoever sat between) could leave this device asking from past everything, for good.
+describe('an answer to a pull whose numbers can’t be right', () => {
+  type Page = Awaited<ReturnType<Api['changes']>>
+  const twisted = (twist: (page: Page, since: number) => Page) => {
+    const changes = server.api.changes
+    server.api.changes = async (since) => twist(await changes(since), since)
+    return () => void (server.api.changes = changes)
+  }
+
+  it.each<[string, (page: Page, since: number) => Page]>([
+    ['a place to resume from far past its last record', (page) => ({ ...page, seq: Number.MAX_SAFE_INTEGER })],
+    ['a place to resume from that is no whole number', (page) => ({ ...page, seq: page.seq + 0.5 })],
+    ['a place to resume from that is no number', (page) => ({ ...page, seq: 'far' as never })],
+    ['a place to resume from before where it was asked', (page, since) => ({ ...page, records: [], seq: since - 1 })],
+    ['records out of their order', (page) => ({ ...page, records: page.records.toReversed() })],
+    ['a record numbered as none is', (page) => ({ ...page, records: page.records.map((record) => ({ ...record, s: -1 })) })],
+    ['more to come and nothing to show for it', (_, since) => ({ records: [], seq: since, more: true })],
+  ])('is refused, and nothing of it kept: %s', async (_, twist) => {
+    await syncOnce(keys, server.api)
+    await otherDevice({ id: crypto.randomUUID(), kind: 'note', body: doc('One'), createdAt: 1, updatedAt: 1 }, 1)
+    await otherDevice({ id: crypto.randomUUID(), kind: 'note', body: doc('Two'), createdAt: 2, updatedAt: 2 }, 1)
+    const right = twisted(twist)
+    await expect(syncOnce(keys, server.api)).rejects.toThrow('The sync server’s answer made no sense.')
+    expect(await db.items.count()).toBe(0)
+    // Answered properly, it carries on from where it was.
+    right()
+    await syncOnce(keys, server.api)
+    expect((await db.items.toArray()).map((item) => plainText(item.body)).sort()).toEqual(['One', 'Two'])
+  })
+})

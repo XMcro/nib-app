@@ -141,3 +141,12 @@ describe('stamps through sync', () => {
     expect(await onServer()).toEqual(readCollection())
   })
 })
+
+// Nothing written in the documents (sync/session): the stamps go all the same, a day's coins or its pack.
+describe('the stamps, on a look that reads no documents', () => {
+  it('are sent', async () => {
+    await device(iphone)
+    await syncOnce(keys, server.api, Date.now(), true)
+    expect((await onServer())?.stamps).toEqual(['2026-11-03', '2026-11-04'])
+  })
+})

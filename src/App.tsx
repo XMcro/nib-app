@@ -118,8 +118,10 @@ export function App() {
   const aloud = useReadAloud(editorRef, doc.key, setNotice, showLibrary)
 
   // Every document in one read, sorted out here (items.sortOut). Each save
-  // reads it again, so it's once, not once a list.
-  const listed = useLiveQuery(() => items.listAll())
+  // reads it again, so it's once, not once a list. Those no write has touched
+  // stay the objects they were, whatever had them read afresh (items.keepSame).
+  const lastListed = useRef<Item[] | undefined>(undefined)
+  const listed = useLiveQuery(async () => (lastListed.current = items.keepSame(lastListed.current, await items.listAll())))
   const lists = useMemo(() => (listed ? items.sortOut(listed) : null), [listed])
   const notes = lists?.notes ?? NONE
   const pages = lists?.pages ?? NONE

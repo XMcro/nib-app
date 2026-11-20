@@ -4,7 +4,7 @@ Nib is a writing app for iPhone, iPad and Mac: quick notes, pages with headings,
 and a manuscript for a whole book. Your writing stays on your device. Nib Plus
 adds sync between your devices, sealed with keys only your devices hold.
 
-This repository is the code of Nib 1.10.11 (build 51) as it ships in the App
+This repository is the code of Nib 1.10.12 (build 53) as it ships in the App
 Store, and of the Nib Plus server it talks to. It's public so anyone can check
 what Nib does with their writing. The privacy policy, in `site/privacy.html`,
 says exactly what the server keeps.

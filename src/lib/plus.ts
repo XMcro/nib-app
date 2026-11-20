@@ -89,6 +89,9 @@ export type Entitled = {
 
 const INACTIVE: Entitlement = { active: false }
 
+const sameEntitlement = (a: Entitlement, b: Entitlement) =>
+  a.active === b.active && a.productId === b.productId && a.expiresAt === b.expiresAt && a.willRenew === b.willRenew && a.jws === b.jws
+
 /**
  * The writer's Plus status, kept current as the App Store reports changes.
  * `known` turns true once the App Store has answered (at once in a browser).
@@ -100,21 +103,23 @@ export function usePlus(): [Entitlement, (entitlement: Entitlement) => void, boo
   useEffect(() => {
     if (!nativeApp) return
     let live = true
+    // Asked each time Nib comes back, and mostly told the same: kept as it was then, not as a new one that has the whole app drawn again.
+    const take = (next: Entitlement) => live && setEntitlement((had) => (sameEntitlement(had, next) ? had : next))
     store
       .entitlement()
-      .then((next) => live && setEntitlement(next))
+      .then(take)
       .catch((error: unknown) => console.warn('Nib: could not read Plus status', error))
       .finally(() => live && setKnown(true))
     // Caught: where the plugin is missing (tests, a broken build) the listener
     // rejects, and Plus should simply read as inactive, not throw.
-    const listener = store.addListener('entitlementChanged', (next) => live && setEntitlement(next)).catch(() => null)
+    const listener = store.addListener('entitlementChanged', take).catch(() => null)
     // Expiry, and renewal turned off in Settings, create no transaction to
     // hear about. Ask again whenever Nib comes back to the front.
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
       store
         .entitlement()
-        .then((next) => live && setEntitlement(next))
+        .then(take)
         .catch((error: unknown) => console.warn('Nib: could not read Plus status', error))
     }
     document.addEventListener('visibilitychange', onVisible)

@@ -227,7 +227,8 @@ describe('doing it to all of them', () => {
 
 describe('with the vault shut', () => {
   const lockedOne = async () => {
-    await db.items.update(one, { vault: { v: 1, iv: 'a', data: 'b' } as never })
+    // `rev` moved, as every write moves it (db/items `nextRev`): a row with it unmoved is kept as it was (items.keepSame).
+    await db.items.update(one, { vault: { v: 1, iv: 'a', data: 'b' } as never, rev: items.nextRev(await items.get(one)) })
   }
 
   it('leaves a locked note out of Move, and says so', async () => {

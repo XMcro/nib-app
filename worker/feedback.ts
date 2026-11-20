@@ -27,6 +27,8 @@ export const PER_DAY = 200
 const QUOTA_EVERYONE = `feedback ${EVERYONE}`
 /** Waiting to be read. What's kept is kept until it's deleted, so a flood can't go on growing, and the whole list still fits in one answer. */
 export const MOST_KEPT = 1000
+/** No more alerts than one in this long. */
+export const ALERT_EVERY_MS = 3_600_000
 
 export class Feedback {
   private sql: Sql
@@ -34,6 +36,19 @@ export class Feedback {
   constructor(sql: Sql) {
     this.sql = sql
     sql.run('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, device TEXT NOT NULL, version TEXT NOT NULL, text TEXT NOT NULL)')
+    sql.run('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v)')
+  }
+
+  /**
+   * Whether to tell the owner's phone of a message just kept: once in ALERT_EVERY_MS, however many come. Each one
+   * set it off, so the day's 200 from anyone who cared to send them were 200 alerts (the red-team review of
+   * 2026-11-17). The messages are all on the page the one alert opens.
+   */
+  alertDue(now: number): boolean {
+    const last = this.sql.all("SELECT v FROM meta WHERE k = 'alerted'")[0]?.v
+    if (typeof last === 'number' && now - last < ALERT_EVERY_MS && now >= last) return false
+    this.sql.run("INSERT INTO meta (k, v) VALUES ('alerted', ?) ON CONFLICT (k) DO UPDATE SET v = excluded.v", now)
+    return true
   }
 
   /** False, and nothing kept, once MOST_KEPT are waiting. */
@@ -50,15 +65,24 @@ export class Feedback {
   remove(id: number) {
     this.sql.run('DELETE FROM messages WHERE id = ?', id)
   }
+
+  /** Every message up to this one: all its reader was shown, and none that came while they looked. */
+  clear(through: number) {
+    this.sql.run('DELETE FROM messages WHERE id <= ?', through)
+  }
 }
 
 /** The messages' requests, for their Durable Object. */
 export function feedbackRequests(feedback: Feedback) {
   return {
-    add: async (text: string, device: Device, version: string, day: string): Promise<Call> => (feedback.add(text, device, version, day) ? ok({}) : { status: 503, body: { error: 'Not taking messages just now.' } }),
+    add: async (text: string, device: Device, version: string, day: string, now = Date.now()): Promise<Call> => (feedback.add(text, device, version, day) ? ok({ alert: feedback.alertDue(now) }) : { status: 503, body: { error: 'Not taking messages just now.' } }),
     list: async (): Promise<Call> => ok({ messages: feedback.list() }),
     remove: async (id: number): Promise<Call> => {
       feedback.remove(id)
+      return ok({})
+    },
+    clear: async (through: number): Promise<Call> => {
+      feedback.clear(through)
       return ok({})
     },
   }
@@ -122,6 +146,11 @@ async function handleMessages(request: Request, path: string, deps: Deps): Promi
     const read = await deps.inbox.list()
     return json(request, read.status, read.body)
   }
+  const through = /^[1-9]\d{0,15}$/.exec(new URL(request.url).searchParams.get('through') ?? '')?.[0]
+  if (path === MESSAGES_PATH && request.method === 'DELETE' && through) {
+    await deps.inbox.clear(Number(through))
+    return new Response(null, { status: 204 })
+  }
   const id = /^\/([1-9]\d{0,15})$/.exec(path.slice(MESSAGES_PATH.length))?.[1]
   if (!id || request.method !== 'DELETE') return notFound()
   await deps.inbox.remove(Number(id))
@@ -151,7 +180,7 @@ export async function handleFeedback(request: Request, deps: Deps): Promise<Resp
   if ('refused' in spent) return json(request, spent.refused.status, spent.refused.body)
   let kept: Call
   try {
-    kept = await deps.inbox.add(message, device as Device, version, utcDay(deps.now()))
+    kept = await deps.inbox.add(message, device as Device, version, utcDay(deps.now()), deps.now())
   } catch (error) {
     console.error('Nib: a feedback message could not be kept', error instanceof Error ? error.name : 'unknown')
     kept = { status: 502, body: { error: 'Could not keep it.' } }
@@ -160,6 +189,6 @@ export async function handleFeedback(request: Request, deps: Deps): Promise<Resp
     await spent.refund()
     return json(request, kept.status, kept.body)
   }
-  deps.alert?.()
+  if ((kept.body as { alert?: boolean }).alert) deps.alert?.()
   return json(request, 200, { ok: true })
 }

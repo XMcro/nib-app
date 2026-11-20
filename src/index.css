@@ -1830,13 +1830,14 @@ textarea.nib-math-source {
   animation: packArrive calc(820ms * var(--m)) cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 }
 
+/* From the top of the screen, there to be seen from its first frame, not
+   from above it and clear: the backdrop needs nothing drawn, and with the
+   page busy as Nib came back it stood alone till the drop got its turn. */
 @keyframes packArrive {
   from {
-    opacity: 0;
-    transform: translateY(-70vh) rotate(-18deg) scale(0.6);
+    transform: translateY(-28vh) rotate(-18deg) scale(0.6);
   }
   55% {
-    opacity: 1;
     transform: translateY(10px) rotate(4deg) scale(1.05, 0.94);
   }
   75% {

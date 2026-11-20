@@ -1,8 +1,8 @@
-import { COUNTED, DEVICES, VERSION, type Device } from '../src/lib/reported'
+import { COUNTED, DEVICES, FIRST_COUNTED, LATEST, type Device } from '../src/lib/reported'
 import { ok, type Call } from './answer'
 import { cors, isAdmin, isJson, json, networksOf, readJson } from './http'
 import type { Sql } from './library'
-import type { QuotaRequests } from './quota'
+import { EVERYONE, spendEach, type QuotaRequests } from './quota'
 import { realDay } from './wire.mjs'
 
 /**
@@ -18,6 +18,15 @@ const KNOWN = new Set<string>(COUNTED)
 export const MOST_A_DAY = 5000
 /** Sends from one network in a day: a device sends one a day, and catches up after a week away. */
 export const SENDS_PER_NETWORK = 200
+/**
+ * And from the wider network round it, and from everyone: with the one limit, by the address or its /64, a block
+ * of addresses had none (the red-team review of 2026-11-17). Refused, a device keeps its day and sends it later.
+ */
+export const SENDS_PER_WIDE = 2000
+export const SENDS_PER_DAY = 20_000
+const QUOTA_EVERYONE = `counts ${EVERYONE}`
+/** How far past the Nib this server was built with a version may be: the next few, in testing before it hears of them. */
+const VERSIONS_AHEAD = 5
 const DAY_MS = 86_400_000
 /** A day this long ago is too old to believe; a day ahead is a time zone. */
 const OLDEST_DAYS = 8
@@ -76,6 +85,23 @@ type Deps = {
   now(): number
 }
 
+/** A version in two digits at most to each part, as Nib's are: "1.10.011" is no other way to write one. */
+const VERSION_SHAPE = /^\d{1,2}(\.\d{1,2}){0,2}$/
+const numbered = (version: string) => {
+  const [major = 0, minor = 0, patch = 0] = version.split('.').map(Number)
+  return major * 10_000 + minor * 100 + patch
+}
+
+/**
+ * Whether counts are taken for `version`: 'never' from one that's no Nib that counts, 'later' from one newer than
+ * this server knows of. Any version was taken, each with rows of its own for good: a store without end for whoever
+ * sent made-up ones.
+ */
+function versionKnown(version: unknown): 'yes' | 'never' | 'later' {
+  if (typeof version !== 'string' || !VERSION_SHAPE.test(version) || numbered(version) < numbered(FIRST_COUNTED)) return 'never'
+  return numbered(version) > numbered(LATEST) + VERSIONS_AHEAD ? 'later' : 'yes'
+}
+
 const isRecent = (day: string, now: number) => {
   if (!realDay(day)) return false
   const age = (now - Date.parse(day)) / DAY_MS
@@ -89,15 +115,22 @@ export async function handleCounts(request: Request, deps: Deps): Promise<Respon
     if (!isJson(request)) return json(request, 415, { error: 'JSON, please.' })
     const body = await readJson(request, 8000)
     const { day, device, version, counts } = body ?? {}
-    if (typeof day !== 'string' || !isRecent(day, deps.now()) || !DEVICES.includes(device as Device) || typeof version !== 'string' || !VERSION.test(version) || !counts || typeof counts !== 'object' || Array.isArray(counts)) {
+    const known = versionKnown(version)
+    if (typeof day !== 'string' || !isRecent(day, deps.now()) || !DEVICES.includes(device as Device) || typeof version !== 'string' || known === 'never' || !counts || typeof counts !== 'object' || Array.isArray(counts)) {
       return json(request, 400, { error: 'A day, a device, a version and its counts, please.' })
     }
     const kept = Object.entries(counts).filter((entry): entry is [string, number] => KNOWN.has(entry[0]) && Number.isInteger(entry[1]) && entry[1] > 0 && entry[1] <= MOST_A_DAY)
     if (!kept.length) return json(request, 400, { error: 'Nothing to count.' })
-    const [here] = await networksOf(request, deps.secret, 'nib-quota', (network) => `counts ${network}`)
-    const quota = deps.quota(here)
-    const spent = await quota.spend(SENDS_PER_NETWORK, 'Too many today.')
-    if (spent.status !== 200) return json(request, spent.status, spent.body)
+    // Not refused for good, which has the app let the day go (src/lib/counts): a Nib in testing waits for the server that knows it.
+    if (known === 'later') return json(request, 429, { error: 'This Nib is newer than the server knows of yet.' })
+    const [here, around] = await networksOf(request, deps.secret, 'nib-quota', (network) => `counts ${network}`)
+    const tooMany = 'Too many today.'
+    const spent = await spendEach([
+      [deps.quota(here), SENDS_PER_NETWORK, tooMany],
+      [deps.quota(around), SENDS_PER_WIDE, tooMany],
+      [deps.quota(QUOTA_EVERYONE), SENDS_PER_DAY, tooMany],
+    ])
+    if ('refused' in spent) return json(request, spent.refused.status, spent.refused.body)
     await deps.counts.add(day, device as Device, version, kept)
     return new Response(null, { status: 204, headers: cors(request) })
   }

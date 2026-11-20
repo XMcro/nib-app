@@ -1,11 +1,12 @@
 import 'fake-indexeddb/auto'
+import Dexie from 'dexie'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JSONContent } from '@tiptap/react'
 import { db } from '../db/db'
 import * as items from '../db/items'
 import * as revisions from '../db/revisions'
 import { filesGone } from './fileQueue'
-import { sweepFiles } from './fileUse'
+import { keepFilesSwept, sweepFiles } from './fileUse'
 import type { Full } from './image'
 
 /**
@@ -129,5 +130,94 @@ describe('clearing the files nothing uses', () => {
     await sweepFiles(START + DAY)
     expect(here()).toEqual([])
     expect(filesGone()).toEqual([unused.id])
+  })
+})
+
+describe('looking, a few at a time', () => {
+  const versions = (count: number, body: JSONContent) => db.revisions.bulkAdd(Array.from({ length: count }, (_, i) => ({ id: `v${String(i).padStart(3, '0')}`, itemId: 'a note', body, createdAt: START - i })))
+  /** Calls `first` as the first past version is read, and counts those read, until the returned stop. */
+  function watchVersions(first: () => void = () => {}) {
+    let read = 0
+    const reading = (version: unknown) => {
+      if (read++ === 0) first()
+      return version
+    }
+    db.revisions.hook('reading', reading)
+    return { read: () => read, stop: () => db.revisions.hook('reading').unsubscribe(reading) }
+  }
+
+  it('lets a save in while it looks through the history, rather than hold it till the end', async () => {
+    original()
+    await versions(90, pictured('A long history'))
+    const order: string[] = []
+    const watch = watchVersions(() => {
+      void Dexie.ignoreTransaction(() => db.revisions.put({ id: 'written meanwhile', itemId: 'a note', body: pictured('Typed as it looked'), createdAt: START })).then(() => order.push('saved'))
+    })
+    try {
+      await sweepFiles(START).then(() => order.push('looked'))
+      expect(order).toEqual(['saved', 'looked'])
+    } finally {
+      watch.stop()
+    }
+  })
+
+  it('reads no history once a document has named every file here', async () => {
+    await items.create('note', pictured('On the hill', original(), original()))
+    await versions(90, pictured('A long history'))
+    const watch = watchVersions()
+    try {
+      await sweepFiles(START)
+      expect(watch.read()).toBe(0)
+    } finally {
+      watch.stop()
+    }
+  })
+})
+
+describe('when it looks', () => {
+  const MINUTE = 60_000
+  let page: EventTarget & { visibilityState: string }
+  let stop: () => void
+  const looked = () => stored.get('nib-files-swept')
+  const show = (visible: boolean) => {
+    page.visibilityState = visible ? 'visible' : 'hidden'
+    page.dispatchEvent(new Event('visibilitychange'))
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: START })
+    page = Object.assign(new EventTarget(), { visibilityState: 'visible' })
+    vi.stubGlobal('document', page)
+    stop = keepFilesSwept()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    stop()
+  })
+
+  it('isn’t as Nib opens, but once it has been on the screen two minutes', () => {
+    expect(looked()).toBeUndefined()
+    vi.advanceTimersByTime(2 * MINUTE - 1)
+    expect(looked()).toBeUndefined()
+    vi.advanceTimersByTime(1)
+    expect(looked()).toBe(String(START + 2 * MINUTE))
+  })
+
+  it('put away, waits till Nib has been back two minutes, not the moment it’s back', () => {
+    vi.advanceTimersByTime(MINUTE)
+    show(false)
+    vi.advanceTimersByTime(60 * MINUTE)
+    expect(looked()).toBeUndefined()
+    show(true)
+    vi.advanceTimersByTime(2 * MINUTE - 1)
+    expect(looked()).toBeUndefined()
+    vi.advanceTimersByTime(1)
+    expect(looked()).toBe(String(START + 63 * MINUTE))
+  })
+
+  it('left on the screen, as on a Mac, looks again a day later', () => {
+    vi.advanceTimersByTime(2 * MINUTE)
+    vi.advanceTimersByTime(DAY)
+    expect(looked()).toBe(String(START + 2 * MINUTE + DAY))
   })
 })

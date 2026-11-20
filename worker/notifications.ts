@@ -1,5 +1,5 @@
 import { json, MAX_RECEIPT, readJson, sha256 } from './http'
-import { BUNDLE_ID } from './jws'
+import { BUNDLE_ID, paidUntil } from './jws'
 import { findLibrary, type Libraries } from './library'
 import type { ShareRequests } from './share'
 import type { SubscriberRequests } from './subscriber'
@@ -36,6 +36,8 @@ export type NotificationDeps = {
   subscriber(key: string): SubscriberRequests
   library: Libraries
   share(slug: string): ShareRequests
+  /** The clock, for what a Sandbox purchase pays to (worker/jws `paidUntil`). */
+  now?(): number
 }
 
 export async function handleNotification(request: Request, deps: NotificationDeps): Promise<Response> {
@@ -65,16 +67,17 @@ export async function handleNotification(request: Request, deps: NotificationDep
 
   const subscription = await sha256(transaction.originalTransactionId)
   if (PAID_TO.has(String(notification.notificationType))) {
-    const until = transaction.expiresDate
-    if (typeof until !== 'number') return refuse()
+    if (typeof transaction.expiresDate !== 'number') return refuse()
+    const until = paidUntil(transaction.expiresDate, transaction.environment, (deps.now ?? Date.now)())
     const paid = await deps.subscriber(subscription).paidTo(until, transaction.purchaseDate)
     const { libraries = [] } = (paid.status === 200 ? paid.body : {}) as { libraries?: string[] }
-    await Promise.all(libraries.map((id) => findLibrary(deps.library, id).paidTo(until)))
+    await Promise.all(libraries.map((id) => findLibrary(deps.library, id).paidTo(until, subscription)))
     return json(request, 200, { ok: true })
   }
   if (notification.notificationType === GIVEN_BACK) {
     // Refused no more, and paid for till it was; what it paid for comes back as it's next asked for (share.ts `unrevoke`).
-    await deps.subscriber(subscription).unrevoke(transaction.purchaseDate, typeof transaction.expiresDate === 'number' ? transaction.expiresDate : 0)
+    const until = typeof transaction.expiresDate === 'number' ? paidUntil(transaction.expiresDate, transaction.environment, (deps.now ?? Date.now)()) : 0
+    await deps.subscriber(subscription).unrevoke(transaction.purchaseDate, until)
     return json(request, 200, { ok: true })
   }
   const revoked = await deps.subscriber(subscription).revoke(transaction.purchaseDate)

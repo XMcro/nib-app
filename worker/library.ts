@@ -63,6 +63,9 @@ export const KEPT_MONTHS = 12
 const SIGNED: unique symbol = Symbol('signed')
 type Auth = string | typeof SIGNED
 
+/** How long a signed request's signature is remembered: both sides of the window its time must fall in (worker/signing). */
+const REPLAY_MS = 10 * 60_000
+
 export class Library {
   private sql: Sql
   private limit: number
@@ -100,6 +103,10 @@ export class Library {
       sql.run(`ALTER TABLE files ADD COLUMN state INTEGER NOT NULL DEFAULT ${STORED}`)
     }
     sql.run('CREATE TABLE IF NOT EXISTS inbox (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, p TEXT NOT NULL)')
+    // What each subscription has itself paid this library to (`pays`). Added to libraries made before it.
+    sql.run('CREATE TABLE IF NOT EXISTS paid (subscription TEXT PRIMARY KEY, until INTEGER NOT NULL)')
+    // Signed requests that change something, lately taken (`taken`). Added to libraries made before it.
+    sql.run('CREATE TABLE IF NOT EXISTS taken (signature TEXT PRIMARY KEY, request TEXT NOT NULL, at INTEGER NOT NULL)')
   }
 
   private get(key: string): SqlValue | undefined {
@@ -158,25 +165,54 @@ export class Library {
    */
   entitle(auth: Auth, expiresAt: number, now: number, subscription?: string): Status {
     this.authorise(auth, now, { needPlus: false })
+    if (subscription) this.pays(subscription, expiresAt)
     if (extendsPaid(this.get('expires'), expiresAt)) this.set('expires', expiresAt)
     if (subscription) this.set('subscription', subscription)
     return this.status(auth, now)
   }
 
   /**
-   * `subscription` was refunded or revoked: no more syncing until a current
-   * one entitles it again. Unless another pays for it now, as one household
-   * library used from two Apple IDs is paid by whichever reported last.
+   * `subscription` has paid this library to `until`, or further if it had
+   * already: each one's own, so a refund takes away what that one paid and
+   * no more (`revoke`). The one on record in a library from before these
+   * were kept is given, first, what was paid then.
    */
-  revoke(subscription: string, now = Date.now()) {
-    if (this.get('auth') === undefined || this.get('subscription') !== subscription) return
-    this.set('expires', 0)
-    this.set('revoked', now)
+  private pays(subscription: string, until: number) {
+    const [named, expires] = [this.get('subscription'), this.get('expires')]
+    if (typeof named === 'string' && typeof expires === 'number' && this.sql.all('SELECT 1 FROM paid LIMIT 1').length === 0) {
+      this.sql.run('INSERT INTO paid (subscription, until) VALUES (?, ?)', named, expires)
+    }
+    this.sql.run('INSERT INTO paid (subscription, until) VALUES (?, ?) ON CONFLICT (subscription) DO UPDATE SET until = MAX(until, excluded.until)', subscription, until)
   }
 
-  /** What the App Store says pays for this library is paid to, whether or not a device has opened it since. Only ever extends. */
-  paidTo(expiresAt: number) {
-    if (this.exists() && extendsPaid(this.get('expires'), expiresAt)) this.set('expires', expiresAt)
+  /**
+   * `subscription` was refunded or revoked: what it paid for is gone. The
+   * library runs on only as far as another has itself paid it, as one
+   * household library used from two Apple IDs is; with none, no more syncing
+   * until a current one entitles it again. Not by whichever sent its receipt
+   * last: a second Apple ID's, a trial's or one long expired, sent for a
+   * library, kept a refunded year syncing to its end.
+   */
+  revoke(subscription: string, now = Date.now()) {
+    if (this.get('auth') === undefined) return
+    const paid = this.sql.all('SELECT 1 FROM paid WHERE subscription = ?', subscription).length > 0
+    // Never one that paid for it; nor, in a library from before each one's was kept, the one on record.
+    if (!paid && this.get('subscription') !== subscription) return
+    this.sql.run('DELETE FROM paid WHERE subscription = ?', subscription)
+    const other = this.sql.all('SELECT subscription, until FROM paid ORDER BY until DESC, subscription LIMIT 1')[0]
+    this.set('expires', other ? Number(other.until) : 0)
+    if (other) this.set('subscription', String(other.subscription))
+    else this.set('revoked', now)
+  }
+
+  /**
+   * What the App Store says `subscription` has paid to, for a library it pays for, whether or not a device has
+   * opened it since. Only ever extends.
+   */
+  paidTo(expiresAt: number, subscription?: string) {
+    if (!this.exists()) return
+    if (subscription) this.pays(subscription, expiresAt)
+    if (extendsPaid(this.get('expires'), expiresAt)) this.set('expires', expiresAt)
   }
 
   /**
@@ -236,11 +272,17 @@ export class Library {
 
   /**
    * The key for signed requests, from a device that has proved it holds it
-   * (worker/sync). By the code's hash only till signed sync is required:
-   * after that, the key is as it is, or changed by a signed request.
+   * (worker/sync). By the code's hash only till signed sync is required, and
+   * only where there's none yet, or the same again: every device derives the
+   * one key from the code (src/sync/crypto), so another is no device's. The
+   * hash, which a request caught in passing carries, put any key in its
+   * place, and that key could then require signed requests: the writer's own
+   * devices refused for good.
    */
   enroll(auth: Auth, key: string, now: number): { enrolled: true } {
     this.authorise(auth, now, { needPlus: false })
+    const held = this.signKey()
+    if (auth !== SIGNED && held !== undefined && held !== key) throw new Refused(409, 'This library has its key already, and that isn’t it.')
     this.set('sign', key)
     return { enrolled: true }
   }
@@ -529,6 +571,21 @@ export class Library {
   }
 
   /**
+   * Whether a signed request that changes something has been taken before: by its signature, kept for as long
+   * as its time could still pass (worker/signing `inSignedWindow`, either side of now). `request` names the one
+   * request it came in, which may ask here more than once. A signature held good for some minutes, with nothing
+   * to say it had been used: one caught in passing could end an inbox again after it was made anew, or turn
+   * signed-only back off (the red-team review of 2026-11-17).
+   */
+  taken(signature: string, request: string, now: number): boolean {
+    this.sql.run('DELETE FROM taken WHERE at < ?', now - REPLAY_MS)
+    const before = this.sql.all('SELECT request FROM taken WHERE signature = ?', signature)[0]
+    if (before) return before.request !== request
+    this.sql.run('INSERT INTO taken (signature, request, at) VALUES (?, ?, ?)', signature, request, now)
+    return false
+  }
+
+  /**
    * Everything, gone. The next request with this code finds no library.
    * Returns the subscription that was paying for it, so its place is freed.
    */
@@ -536,7 +593,7 @@ export class Library {
     this.authorise(auth, now, { needPlus: false })
     const subscription = this.get('subscription')
     this.sql.transaction(() => {
-      for (const table of ['meta', 'records', 'chunks', 'files', 'inbox']) this.sql.run(`DELETE FROM ${table}`)
+      for (const table of ['meta', 'records', 'chunks', 'files', 'inbox', 'paid', 'taken']) this.sql.run(`DELETE FROM ${table}`)
       this.set('gone', 1)
     })
     return typeof subscription === 'string' ? subscription : null
@@ -544,7 +601,7 @@ export class Library {
 }
 
 /** What a signed request proves (worker/sync): the message it signed (worker/signing), the time in it, and the signature. */
-export type Proof = { message: string; time: number; signature: string }
+export type Proof = { message: string; time: number; signature: string; once?: string }
 
 /** Who's asking: the code's hash, or what a signed request proves. Both can be copied to a Durable Object; `SIGNED` can't, so no caller can claim it. */
 export type Asker = string | Proof
@@ -602,6 +659,7 @@ export function libraryRequests(
     if (refused) return refused
     if (!inSignedWindow(asker.time, now)) return { status: 401, body: { error: 'This device’s clock is too far off to sync. Check its date and time.' } }
     if (!(await verifySignature(library.signKey()!, asker.signature, asker.message))) return { status: 401, body: { error: 'That request isn’t signed for this library.' } }
+    if (asker.once !== undefined && library.taken(asker.signature, asker.once, now)) return { status: 401, body: { error: 'That request has been taken already.' } }
     return answered(() => request(SIGNED, now))
   }
   return {
@@ -654,8 +712,8 @@ export function libraryRequests(
       await effects.alarm(nextAlarm(library, now))
       return ok({ revoked: true })
     },
-    paidTo: async (expiresAt: number): Promise<Call> => {
-      library.paidTo(expiresAt)
+    paidTo: async (expiresAt: number, subscription?: string): Promise<Call> => {
+      library.paidTo(expiresAt, subscription)
       await effects.alarm(nextAlarm(library, clock()))
       return ok({ told: true })
     },
@@ -744,6 +802,6 @@ export function findLibrary(library: Libraries, id: string) {
       return reach((stub) => stub.create(asker, expiresAt, subscription))
     },
     revoke: (subscription: string) => both((stub) => stub.revoke(subscription)),
-    paidTo: (expiresAt: number) => both((stub) => stub.paidTo(expiresAt)),
+    paidTo: (expiresAt: number, subscription?: string) => both((stub) => stub.paidTo(expiresAt, subscription)),
   }
 }

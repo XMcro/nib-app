@@ -194,6 +194,56 @@ describe('Subscriber', () => {
     expect(subscriber.claimLibrary('quiet', later)).toBe(true)
   })
 
+  // A place given back was deleted, whosever it was: one a library had held for months, or one a second request had
+  // just been counted on. Either way the library went on paid for, on no subscription's list: past the cap, and out
+  // of a refund's reach.
+  it('gives back a library’s place only as the claim found it: gone if it was new, as it was if it had only gone idle', () => {
+    const sql = sqlite()
+    const subscriber = new Subscriber(sql)
+    const held = () => sql.all('SELECT id, renewed FROM libraries ORDER BY id')
+    expect(subscriber.claimLibrary('new', NOW)).toBe(true)
+    subscriber.releaseLibrary('new', subscriber.claimOf('new'))
+    expect(held()).toEqual([])
+
+    subscriber.claimLibrary('idle', NOW)
+    expect(subscriber.claimLibrary('idle', NOW + LIBRARY_IDLE_MS + DAY)).toBe(true)
+    subscriber.releaseLibrary('idle', subscriber.claimOf('idle'))
+    expect(held()).toEqual([{ id: 'idle', renewed: NOW }])
+    // Still what a renewal pays for, and a refund cuts off.
+    expect(subscriber.paidTo(NOW + 30 * DAY, NOW)).toEqual(['idle'])
+  })
+
+  it('keeps a library’s place that another request has counted on since it was taken', () => {
+    const sql = sqlite()
+    const subscriber = new Subscriber(sql)
+    // Two at once for one library: the first takes the place, the second finds it taken, and the first is then refused.
+    expect(subscriber.claimLibrary('raced', NOW)).toBe(true)
+    const first = subscriber.claimOf('raced')
+    expect(subscriber.claimLibrary('raced', NOW)).toBe(false)
+    subscriber.releaseLibrary('raced', first)
+    expect(sql.all('SELECT id FROM libraries')).toEqual([{ id: 'raced' }])
+    // Deleted from the server by its own code, it goes whatever was claimed (worker/sync).
+    subscriber.releaseLibrary('raced')
+    expect(sql.all('SELECT id FROM libraries')).toEqual([])
+  })
+
+  it('keeps a share’s place that another request has counted on since it was taken, and gives back one that’s its own', () => {
+    const sql = sqlite()
+    const subscriber = new Subscriber(sql)
+    expect(subscriber.admit('raced', NOW + DAY, NOW)).toBe(true)
+    const first = subscriber.placeOf('raced')
+    expect(subscriber.admit('raced', NOW + DAY, NOW)).toBe(false)
+    subscriber.release('raced', first)
+    expect(sql.all('SELECT slug FROM shares')).toEqual([{ slug: 'raced' }])
+
+    expect(subscriber.admit('refused', NOW + DAY, NOW)).toBe(true)
+    subscriber.release('refused', subscriber.placeOf('refused'))
+    expect(sql.all('SELECT slug FROM shares')).toEqual([{ slug: 'raced' }])
+    // Revoked or expired, it goes whatever was claimed (worker/share).
+    subscriber.release('raced')
+    expect(sql.all('SELECT slug FROM shares')).toEqual([])
+  })
+
   // A refund changed nothing: the receipt went on paying until it expired.
   it('pays for nothing bought up to a refund, and says what it was paying for', () => {
     const subscriber = new Subscriber(sqlite())

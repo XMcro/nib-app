@@ -12,6 +12,18 @@ import { fakeServer } from './fakeServer'
 import { readClipperCode, sealPost } from '../../worker/inbox-seal'
 import { inboxAddress, newInboxAddress, postBody, postKind, takePosts } from './inbox'
 
+// Markdown as it's read everywhere, but for a text that says it can't be: whatever marked may yet fail on.
+vi.mock('../lib/import', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/import')>()
+  return {
+    ...real,
+    markdownToBody: (...args: Parameters<typeof real.markdownToBody>) => {
+      if (args[0].includes('UNREADABLE')) throw new RangeError('Maximum call stack size exceeded')
+      return real.markdownToBody(...args)
+    },
+  }
+})
+
 /**
  * The library's inbox from a device's side (sync/inbox), against the server's
  * own library (worker/library, through sync/fakeServer), with posts sealed as
@@ -195,6 +207,25 @@ describe('the library’s inbox, from a device', () => {
     expect((await server.api.inbox()).posts).toEqual([])
   })
 
+  // Its text failed marked, the failure went uncaught, and the server was never told any post was taken: that one,
+  // and every post after it, waited there till they expired, fetched again at every look (the red-team review of 2026-11-17).
+  it('keeps a post whose text can’t be read as Markdown as the plain text it is, and takes the posts after it', async () => {
+    const address = await hash(secretOf((await newInboxAddress(keys, server.api)).address))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await server.post(address, { title: 'Before' })
+    await server.post(address, { title: 'Odd one', text: 'UNREADABLE first line\n\nsecond line', url: 'https://example.com/odd' })
+    await server.post(address, { title: 'After' })
+    expect(await takePosts(keys, server.api)).toBe(3)
+    const notes = (await db.items.toArray()).map((item) => plainText(item.body)).sort()
+    expect(notes[0]).toBe('After')
+    expect(notes[1]).toBe('Before')
+    expect(notes[2]).toContain('Odd one')
+    expect(notes[2]).toContain('UNREADABLE first line')
+    expect(notes[2]).toContain('second line')
+    expect(notes[2]).toContain('https://example.com/odd')
+    expect((await server.api.inbox()).posts).toEqual([])
+  })
+
   it('gives the browser extension a code to seal its own clips with: the address, and the key that only this library’s devices can open', async () => {
     const made = await newInboxAddress(keys, server.api)
     expect(made.clipper.startsWith(`${made.address}#`)).toBe(true)
@@ -240,6 +271,32 @@ describe('the library’s inbox, from a device', () => {
     const hostile = JSON.stringify(postBody({ title: 'Kept', url: 'javascript:alert(1)', page: '<p onclick="steal()">Words<img src="https://example.com/x.png" onerror="steal()"></p><script>steal()</script><a href="javascript:steal()">go</a>', part: 'whole' }))
     expect(hostile).not.toMatch(/steal|onerror|onclick|x\.png|javascript:/)
     expect(hostile).toContain('Words')
+  })
+
+  // The red-team review of 2026-11-17: a time that is none was the note's date all the same, and a backup holding
+  // such a note is refused when it's restored.
+  it.each([-1, Number.NaN, 9e15, '2026' as never, null as never])('dates a post whose time is no time (%s) by this device’s clock', async (at) => {
+    const address = await hash(secretOf((await newInboxAddress(keys, server.api)).address))
+    await server.post(address, { title: 'Dated' })
+    const inbox = server.api.inbox
+    server.api.inbox = async () => {
+      const waiting = await inbox()
+      return { ...waiting, posts: waiting.posts.map((post) => ({ ...post, at })) }
+    }
+    const before = Date.now()
+    expect(await takePosts(keys, server.api)).toBe(1)
+    const [made] = await db.items.toArray()
+    expect(made.createdAt).toBeGreaterThanOrEqual(before)
+    expect(made.createdAt).toBeLessThanOrEqual(Date.now())
+  })
+
+  it('stops asking a server that always says there are more posts', async () => {
+    const address = await hash(secretOf((await newInboxAddress(keys, server.api)).address))
+    await server.post(address, { title: 'Only one' })
+    const inbox = vi.fn(server.api.inbox)
+    server.api.inbox = async () => ({ ...(await inbox()), more: true })
+    expect(await takePosts(keys, server.api)).toBe(1)
+    expect(inbox.mock.calls.length).toBeLessThanOrEqual(50)
   })
 
   it('does nothing with no inbox, or one this device can’t open', async () => {

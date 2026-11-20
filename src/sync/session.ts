@@ -19,6 +19,10 @@ const WRITING_MS = 60_000
 /** How soon it looks again while the app is open: at first, and at the longest, once nothing has changed for a while (Session `later`). */
 const INTERVAL_MS = 30_000
 const IDLE_MS = 5 * 60_000
+/** Away this long with a look in flight, the look is ended as Nib comes back (onVisible): what it was waiting on isn't coming. */
+const AWAY_MS = 60_000
+/** Coming back says so more than once, shown and then focused: said again this soon, it's the same coming back, and the one look. */
+const JUST_MS = 5000
 
 /**
  * The running sync, for one code. Only one tab per browser runs it (a Web
@@ -37,6 +41,15 @@ export class Session {
   /** When the last look began, and whether anything's been written here since. */
   private lastLook = -Infinity
   private written = false
+  /** When Nib last came back to the screen, or to the front (onVisible). */
+  private backAt = -Infinity
+  /** When Nib was put away, while it is. */
+  private hidAt: number | null = null
+  /** What ends the look under way; none between looks, so nothing else that asks the server is ended with it. */
+  private look: AbortController | null = null
+  /** How many times the documents here have been written, and the count at the last look that left none of them to send: -1 before one, or since whatever unsettled it. */
+  private writes = 0
+  private sentAt = -1
   private running: Promise<void> | null = null
   private again = false
   private stopped = false
@@ -65,7 +78,7 @@ export class Session {
     },
   ) {
     this.keys = keys
-    const api = httpApi(SERVER, keys)
+    const api = httpApi(SERVER, keys, () => this.look?.signal)
     // As the server answers for changes it says how many posts wait in the inbox: kept for the end of the look.
     this.api = {
       ...api,
@@ -133,6 +146,7 @@ export class Session {
     if (!ours) return
     this.quiet = 0
     this.written = true
+    this.writes += 1
     if (this.manual()) return this.onStatus({ state: 'manual', message: 'Changes on this device haven’t been sent.' })
     // Put away (the editor's last save lands as Nib goes): sent while it still can be.
     if (document.visibilityState === 'hidden') return this.run()
@@ -151,10 +165,23 @@ export class Session {
     return Math.max(Date.now() + DEBOUNCE_MS, this.lastLook + WRITING_MS)
   }
 
-  private onVisible = () => {
+  private onVisible = (event: Event) => {
     // Back: look at once, and start over. Put away: send what's written, while it can be.
-    if (document.visibilityState === 'visible') this.quiet = 0
-    else if (!this.written) return
+    if (document.visibilityState === 'visible') {
+      this.quiet = 0
+      // Shown, then focused: the one look, not a second waiting on the first. Back online is its own news.
+      if (event.type !== 'online') {
+        if (Date.now() - this.backAt < JUST_MS) return
+        this.backAt = Date.now()
+      }
+      // A look in flight as Nib was put away is stopped where it stands, its request with it. Back after a while, that
+      // may never be answered, and every look since waited behind it: ended, for the look below to be made afresh.
+      if (this.hidAt !== null && Date.now() - this.hidAt >= AWAY_MS) this.look?.abort()
+      this.hidAt = null
+    } else {
+      this.hidAt ??= Date.now()
+      if (!this.written) return
+    }
     this.nudge()
   }
 
@@ -194,11 +221,13 @@ export class Session {
     clearTimeout(this.next)
     this.lastLook = Date.now()
     this.written = false
-    this.running = this.pass().finally(() => this.after())
+    this.look = new AbortController()
+    this.running = this.pass(this.look.signal).finally(() => this.after())
   }
 
   private after() {
     this.running = null
+    this.look = null
     if (this.again && !this.stopped) {
       this.again = false
       this.run()
@@ -213,12 +242,14 @@ export class Session {
     try {
       return await work()
     } finally {
+      // A library changed, or fetched afresh: what sync knew of the documents is no longer what was sent.
+      this.sentAt = -1
       this.after()
       release()
     }
   }
 
-  private async pass() {
+  private async pass(ended: AbortSignal) {
     this.onStatus({ state: 'syncing' })
     try {
       // This device's own App Store receipt keeps the library paid for.
@@ -226,10 +257,24 @@ export class Session {
       // ever extends, so a stale receipt from another device cannot cut it short.
       const jws = this.receipt()
       if (jws && jws !== this.sent) {
-        await this.api.entitle(jws)
-        this.sent = jws
+        // Refused (on too many libraries, refunded), or not reached: said in the log and tried again next look, and
+        // this look goes on. It stopped here, every time, though the library was still paid for by another device's;
+        // whether it is, is for the server to say to the look itself.
+        try {
+          await this.api.entitle(jws)
+          this.sent = jws
+        } catch (error) {
+          console.warn('Nib: could not send this device’s receipt', error)
+        }
       }
-      const { changed, full, tooLarge, copies, moved } = await syncOnce(this.keys, this.api)
+      // Read through for what to send only if written since a look that sent them all (engine `syncOnce`): every key
+      // of every document and past version, on each look, was most of what a look cost. Unsettled till this one ends
+      // well: stopped part-way, it may have left something only the reading would find.
+      const writes = this.writes
+      const unchanged = this.sentAt === writes
+      this.sentAt = -1
+      const { changed, full, tooLarge, copies, moved, clean } = await syncOnce(this.keys, this.api, Date.now(), unchanged)
+      if (clean && this.writes === writes) this.sentAt = writes
       // Once a day, and never the reason sync shows as failing (a server not yet deployed with it, say).
       await expireHistory(this.api).catch((error: unknown) => console.warn('Nib: could not let go of old history on the server', error))
       // The files the documents name, after them; nor these the reason. More than a pass takes go in the next, at once.
@@ -266,6 +311,11 @@ export class Session {
       )
     } catch (error) {
       if (this.stopped) return
+      // Ended as Nib came back (onVisible): not offline, and another is made at once.
+      if (ended.aborted) {
+        this.again = true
+        return
+      }
       // Offline, or the server down: no need to ask it any more often.
       this.quiet += 1
       // Reset under it (a restored backup): it stopped, and a fresh pass runs now.

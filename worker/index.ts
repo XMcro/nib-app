@@ -201,6 +201,7 @@ export class FeedbackObject extends DurableObject<Env> {
   add(...args: Parameters<ReturnType<typeof feedbackRequests>['add']>) { return this.requests.add(...args) }
   list() { return this.requests.list() }
   remove(...args: Parameters<ReturnType<typeof feedbackRequests>['remove']>) { return this.requests.remove(...args) }
+  clear(...args: Parameters<ReturnType<typeof feedbackRequests>['clear']>) { return this.requests.clear(...args) }
 }
 
 export default {

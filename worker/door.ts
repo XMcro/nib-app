@@ -1,3 +1,4 @@
+import { SYNC_ORIGIN } from '../src/lib/hosts'
 import { cors, json, TooLarge } from './http'
 import { NOTIFICATIONS_PATH } from './notifications'
 import { PAGE, READER_HEADERS, READER_PAGE } from './shares'
@@ -16,10 +17,32 @@ function routeOf(path: string, routes: Routes): Route {
   return routes.sync
 }
 
-/** Every request the Worker takes: whose it is, the app's own origin asking first, and a body past its route's limit, each said once. */
+/**
+ * On every answer, by whichever of its addresses it leaves: the nibprivacy.com zone adds these itself, and the
+ * workers.dev address earlier Nibs sync with had none of them (the red-team review of 2026-11-17).
+ */
+const ON_EVERY_ANSWER: Record<string, string> = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
+  'Strict-Transport-Security': 'max-age=15552000; includeSubDomains',
+}
+/** Where the owner's page of feedback is, its key kept in that origin's storage (worker/feedback-page): no stranger's draft is shown there. */
+const SYNC_HOST = new URL(SYNC_ORIGIN).hostname
+
+/** Every request the Worker takes (`routed`), its answer sent with the headers every answer has, where it hasn't its own. */
 export async function frontDoor(request: Request, routes: Routes): Promise<Response> {
-  const path = new URL(request.url).pathname
-  if (PAGE.test(path) && request.method === 'GET') return new Response(READER_PAGE, { headers: READER_HEADERS })
+  const answer = await routed(request, routes)
+  // A copy: the headers of an answer from the site's files, or from a Durable Object, can't be changed.
+  const headers = new Headers(answer.headers)
+  for (const [name, value] of Object.entries(ON_EVERY_ANSWER)) if (!headers.has(name)) headers.set(name, value)
+  return new Response(answer.body, { status: answer.status, statusText: answer.statusText, headers })
+}
+
+/** Whose a request is, the app's own origin asking first, and a body past its route's limit, each said once. */
+async function routed(request: Request, routes: Routes): Promise<Response> {
+  const { pathname: path, hostname } = new URL(request.url)
+  if (PAGE.test(path) && request.method === 'GET' && hostname !== SYNC_HOST) return new Response(READER_PAGE, { headers: READER_HEADERS })
   // Only /v1/* and /d/* reach here (assets.run_worker_first); everything else is the site.
   if (!path.startsWith('/v1/')) return routes.assets(request)
   try {

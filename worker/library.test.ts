@@ -175,6 +175,50 @@ describe('Library', () => {
     expect(() => library.changes(AUTH, 0, NOW)).toThrow('not active')
   })
 
+  // The library named whichever subscription sent its receipt last, and a refund of any other did nothing: a year
+  // refunded went on syncing once a second Apple ID's receipt, a trial's or one long expired, had been sent for it.
+  it('is cut off by a refund though another subscription’s receipt has come since, one that pays for nothing now', () => {
+    const library = new Library(sqlite())
+    library.create(AUTH, NOW + 365 * 86_400_000, NOW, 'subscription-a')
+    library.entitle(AUTH, NOW - 30 * 86_400_000, NOW, 'subscription-b')
+    library.revoke('subscription-a', NOW)
+    expect(library.status(AUTH, NOW).entitled).toBe(false)
+  })
+
+  it('runs on after a refund only as far as another subscription has itself paid it', () => {
+    const library = new Library(sqlite())
+    library.create(AUTH, NOW + 365 * 86_400_000, NOW, 'subscription-a')
+    library.entitle(AUTH, NOW + 30 * 86_400_000, NOW, 'subscription-b')
+    library.revoke('subscription-a', NOW)
+    expect(library.status(AUTH, NOW)).toMatchObject({ entitled: true, expiresAt: NOW + 30 * 86_400_000 })
+    // And that one refunded too, nothing pays for it.
+    library.revoke('subscription-b', NOW)
+    expect(library.status(AUTH, NOW).entitled).toBe(false)
+  })
+
+  it('is cut back by a refund of a subscription whose renewal the App Store told it of, whichever sent its receipt last', () => {
+    const library = new Library(sqlite())
+    library.create(AUTH, NOW + 30 * 86_400_000, NOW, 'subscription-a')
+    library.entitle(AUTH, NOW + 30 * 86_400_000, NOW, 'subscription-b')
+    library.paidTo(NOW + 400 * 86_400_000, 'subscription-a')
+    expect(library.status(AUTH, NOW).expiresAt).toBe(NOW + 400 * 86_400_000)
+    library.revoke('subscription-a', NOW)
+    expect(library.status(AUTH, NOW)).toMatchObject({ entitled: true, expiresAt: NOW + 30 * 86_400_000 })
+  })
+
+  it('gives the one subscription on record what was paid, in a library from before each one’s was kept', () => {
+    const sql = sqlite()
+    const library = new Library(sql)
+    library.create(AUTH, NOW + 365 * 86_400_000, NOW, 'subscription-a')
+    // As such a library is: the subscription named, the date it's paid to, and no more.
+    sql.run('DELETE FROM paid')
+    library.entitle(AUTH, NOW + 30 * 86_400_000, NOW, 'subscription-b')
+    library.revoke('subscription-b', NOW)
+    expect(library.status(AUTH, NOW)).toMatchObject({ entitled: true, expiresAt: NOW + 365 * 86_400_000 })
+    library.revoke('subscription-a', NOW)
+    expect(library.status(AUTH, NOW).entitled).toBe(false)
+  })
+
   it('forgets everything when wiped', () => {
     const library = entitled()
     library.push(AUTH, [{ k: 'x', p: 'secret' }], NOW)
@@ -301,7 +345,7 @@ describe('a library that has lapsed', () => {
     const effects: LibraryEffects = {
       alarm: async (at) => void (state.alarm = at),
       deleteAll: async () => {
-        for (const table of ['meta', 'records', 'chunks', 'files', 'inbox']) sql.run(`DROP TABLE ${table}`)
+        for (const table of ['meta', 'records', 'chunks', 'files', 'inbox', 'paid', 'taken']) sql.run(`DROP TABLE ${table}`)
         state.deleted = true
       },
       home: 'its-home',

@@ -30,7 +30,8 @@ const CHECKS = [
   // A draft that isn't one says so, instead of crashing the page.
   ['https://share.nibprivacy.com/reader.js', 'Ask the writer to share it again'],
   // The site redrawn for 1.10.09, with its new features.
-  ['https://nibprivacy.com/', 'Seven new ways'],
+  ['https://nibprivacy.com/', 'Six chapters, and a few appendices.'],
+  ['https://nibprivacy.com/inkwell.js', 'nib-inkwell-story'],
   // The update log, with this release in it and its day filled in.
   ['https://nibprivacy.com/updates/', `id="v${version.replaceAll('.', '-')}-h">${version}</h2><time`],
   ['https://nibprivacy.com/privacy/', 'one address, or one network'],

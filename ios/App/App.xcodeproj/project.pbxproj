@@ -440,7 +440,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NibWidgets/NibWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 51;
+				CURRENT_PROJECT_VERSION = 53;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NibWidgets/Info.plist;
@@ -450,7 +450,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.10.11;
+				MARKETING_VERSION = 1.10.12;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios.widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -579,7 +579,7 @@
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "App/App-Mac.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 51;
+				CURRENT_PROJECT_VERSION = 53;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				INFOPLIST_FILE = App/Info.plist;
@@ -588,7 +588,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.10.11;
+				MARKETING_VERSION = 1.10.12;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -608,7 +608,7 @@
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "App/App-Mac.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 51;
+				CURRENT_PROJECT_VERSION = 53;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				INFOPLIST_FILE = App/Info.plist;
@@ -617,7 +617,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.10.11;
+				MARKETING_VERSION = 1.10.12;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				"PRODUCT_NAME[sdk=macosx*]" = Nib;
@@ -633,7 +633,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NibShare/NibShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 51;
+				CURRENT_PROJECT_VERSION = 53;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NibShare/Info.plist;
@@ -643,7 +643,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.10.11;
+				MARKETING_VERSION = 1.10.12;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -660,7 +660,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NibWidgets/NibWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 51;
+				CURRENT_PROJECT_VERSION = 53;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NibWidgets/Info.plist;
@@ -670,7 +670,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.10.11;
+				MARKETING_VERSION = 1.10.12;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios.widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -687,7 +687,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NibShare/NibShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 51;
+				CURRENT_PROJECT_VERSION = 53;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NibShare/Info.plist;
@@ -697,7 +697,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.10.11;
+				MARKETING_VERSION = 1.10.12;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

@@ -43,6 +43,7 @@ export const INBOX_PAGE = `<!doctype html>
         <p id="wrong" role="alert" hidden>That key didn’t open it.</p>
       </form>
       <ul id="messages"></ul>
+      <button id="clear" type="button" hidden>Delete all of these</button>
       <button id="lock" type="button" hidden>Forget the key on this device</button>
     </main>
     <script nonce="{{NONCE}}">
@@ -58,14 +59,19 @@ export const INBOX_PAGE = `<!doctype html>
         const say = (words) => { byId('state').textContent = words }
         const authorised = () => ({ Authorization: 'Bearer ' + key })
 
+        // The newest message on the page, so that deleting all of them spares one that came since.
+        let newest = 0
+
         function counted() {
           const n = byId('messages').children.length
+          byId('clear').hidden = n < 2
           say(n === 0 ? 'No messages.' : n === 1 ? '1 message.' : n + ' messages.')
         }
 
         function asking(wrong) {
           say('')
           byId('messages').replaceChildren()
+          byId('clear').hidden = true
           byId('lock').hidden = true
           byId('unlock').hidden = false
           byId('wrong').hidden = !wrong
@@ -119,9 +125,19 @@ export const INBOX_PAGE = `<!doctype html>
           byId('key').value = ''
           byId('unlock').hidden = true
           byId('lock').hidden = false
+          newest = Math.max(0, ...messages.map((message) => message.id))
           byId('messages').replaceChildren(...messages.map(row))
           counted()
         }
+
+        byId('clear').addEventListener('click', async () => {
+          if (!confirm('Delete every message shown here for good?')) return
+          byId('clear').disabled = true
+          const done = await fetch('/v1/feedback/messages?through=' + newest, { method: 'DELETE', headers: authorised() }).catch(() => null)
+          byId('clear').disabled = false
+          if (!done || !done.ok) say('That didn’t delete. Please try again.')
+          else void load()
+        })
 
         byId('unlock').addEventListener('submit', (event) => {
           event.preventDefault()

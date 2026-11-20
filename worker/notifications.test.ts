@@ -38,6 +38,7 @@ async function world() {
     subscriber: (of) => (of === key ? subscriberStub : subscriberRequests(new Subscriber(sqlite()), () => NOW)),
     library: () => libraryRequests(library, () => NOW),
     share: () => shareRequests(share, { subscriber: () => subscriberStub, alarm: async () => {} }, () => NOW),
+    now: () => NOW,
   }
   const send = async (signedPayload: string) =>
     (await handleNotification(new Request('https://nib.test/v1/app-store/notifications', { method: 'POST', body: JSON.stringify({ signedPayload }) }), deps)).status
@@ -98,6 +99,31 @@ describe('App Store Server Notifications', () => {
     library.entitle(AUTH, NOW + 30 * DAY, NOW, await sha256('another-apple-id'))
     expect(await send(await notification('REVOKE'))).toBe(200)
     expect(library.status(AUTH, NOW).entitled).toBe(true)
+  })
+
+  // Told only a date, the library couldn't say whose renewal had moved it: refunded, with another's receipt sent last, it took nothing back.
+  it('take back a renewal they told a library of, once it’s refunded, though another subscription’s receipt came last', async () => {
+    const { send, library } = await world()
+    library.entitle(AUTH, NOW + 30 * DAY, NOW, await sha256('another-apple-id'))
+    const renewal = { ...TRANSACTION, purchaseDate: NOW, expiresDate: NOW + 400 * DAY }
+    expect(await send(await notification('DID_RENEW', undefined, renewal))).toBe(200)
+    expect(library.status(AUTH, NOW).expiresAt).toBe(NOW + 400 * DAY)
+    expect(await send(await notification('REFUND', undefined, renewal))).toBe(200)
+    // The other still pays, to where its own receipt said.
+    expect(library.status(AUTH, NOW)).toMatchObject({ entitled: true, expiresAt: NOW + 30 * DAY })
+  })
+
+  // A receipt from Sandbox or TestFlight pays for a day at most, with no grace (worker/jws); told of the same
+  // purchase's renewal, a library was paid to its whole length (the red-team review of 2026-11-17).
+  it('pay a library no further for a Sandbox renewal than its receipt would', async () => {
+    const { send, library, subscriber } = await world()
+    const renewal = { ...TRANSACTION, environment: 'Sandbox', purchaseDate: NOW, expiresDate: NOW + 400 * DAY }
+    expect(await send(await notification('DID_RENEW', undefined, renewal))).toBe(200)
+    expect(library.status(AUTH, NOW).expiresAt).toBe(TRANSACTION.expiresDate)
+    expect(subscriber.expiresAt()).toBe(TRANSACTION.expiresDate)
+    // A Production one pays to where it says.
+    expect(await send(await notification('DID_RENEW', undefined, { ...renewal, environment: 'Production' }))).toBe(200)
+    expect(library.status(AUTH, NOW).expiresAt).toBe(NOW + 400 * DAY)
   })
 
   // Not handled, a refund Apple reversed went on refusing the purchase it had taken back.

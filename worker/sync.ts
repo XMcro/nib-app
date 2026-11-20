@@ -48,8 +48,8 @@ export type Deps = {
 }
 
 /**
- * Signed pushes that didn't check out, from one network in a day, before the
- * next one's body is refused unread. A signed push is read, up to 16 MB, before
+ * Signed pushes to one library that didn't check out, from one network in a
+ * day, before the next one's body, to that library, is refused unread. A signed push is read, up to 16 MB, before
  * its signature can be checked, and a library's id is in its inbox's address,
  * which services hold (the security review of 2026-11-13). A device signs
  * every push it sends, so its own never count.
@@ -105,13 +105,16 @@ export async function handleSync(request: Request, deps: Deps): Promise<Response
   // A push may be large; a receipt, a key or a list of keys is all any other carries.
   const limit = path === '/v1/changes' && request.method === 'POST' ? MAX_BODY : MAX_RECEIPT
   const bytes = async () => (raw ??= await readBytes(request, limit))
+  /** This request, among all that might carry its signature: it may ask the library more than once. */
+  const once = crypto.randomUUID()
   // What a signed request signed (worker/signing), as this server sees it.
   const proof = async (): Promise<Proof> => {
     const time = Number(request.headers.get('X-Nib-Time'))
     // A file is never read here: its hash is said in a header, signed with the rest, and checked by the store as it takes the bytes.
     const hash = sendsFile(request) ? (request.headers.get(FILE_HASH_HEADER) ?? '') : await bodyHash(await bytes())
     const message = signedMessage({ id: libraryId, method: request.method, path: path + url.search, time, bodyHash: hash })
-    return { message, time, signature: request.headers.get('X-Nib-Signature') ?? '' }
+    // One that changes something is taken once (worker/library `taken`); reading again changes nothing.
+    return { message, time, signature: request.headers.get('X-Nib-Signature') ?? '', ...(request.method === 'GET' ? {} : { once }) }
   }
   // The library, asked by the code's hash or by a signature.
   const who = async (): Promise<Asker> => authHash ?? (await proof())
@@ -146,7 +149,9 @@ export async function handleSync(request: Request, deps: Deps): Promise<Response
     const claimed = await subscriber.claimLibrary(libraryId, claims.purchasedAt)
     if (claimed.status !== 200) return reply(claimed)
     const result = creating ? await library.create(await who(), claims.expiresAt, subscription) : await asked((stub, asker) => stub.entitle(asker, claims.expiresAt, subscription))
-    if (result.status !== 200 && (claimed.body as { added: boolean }).added) await subscriber.releaseLibrary(libraryId)
+    // Only a place it took, and only as it found it: another request may have counted on it since (worker/subscriber).
+    const { added, claim } = claimed.body as { added: boolean; claim: number }
+    if (result.status !== 200 && added) await subscriber.releaseLibrary(libraryId, claim)
     return reply(result)
   }
   if (path === '/v1/files' || path.startsWith('/v1/files/')) return handleFiles(request, { store: deps.files, asked, reach: library.reach, waitUntil: deps.waitUntil })
@@ -167,7 +172,8 @@ export async function handleSync(request: Request, deps: Deps): Promise<Response
       const signs = await library.reach((stub) => stub.signs())
       if (signs.status !== 200) return reply(signs)
       if (deps.quota) {
-        const [here, around] = await networksOf(request, deps.secret, 'nib-quota', (network) => `bad push ${network}`)
+        // Counted by the library they name: a network's bad pushes to one refuse no one's pushes to another.
+        const [here, around] = await networksOf(request, deps.secret, 'nib-quota', (network) => `bad push ${libraryId} ${network}`)
         networks = [deps.quota(here), deps.quota(around)]
         const used = await Promise.all(networks.map(async (quota) => ((await quota.used()).body as { used: number }).used))
         if (used[0] >= BAD_PUSHES_PER_NETWORK || used[1] >= BAD_PUSHES_PER_WIDE) return json(request, 429, { error: TOO_MANY_BAD })

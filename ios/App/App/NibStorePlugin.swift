@@ -29,6 +29,7 @@ public class NibStorePlugin: CAPPlugin, CAPBridgedPlugin {
                 if case .verified(let transaction) = result { await transaction.finish() }
                 let state = await NibStorePlugin.currentEntitlement()
                 self?.notifyListeners("entitlementChanged", data: state)
+                self?.learnRenewal()
             }
         }
     }
@@ -66,6 +67,7 @@ public class NibStorePlugin: CAPPlugin, CAPBridgedPlugin {
                     }
                     await transaction.finish()
                     call.resolve(["status": "purchased", "entitlement": await Self.currentEntitlement()])
+                    self.learnRenewal()
                 case .pending:
                     call.resolve(["status": "pending"])
                 case .userCancelled:
@@ -80,7 +82,10 @@ public class NibStorePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func entitlement(_ call: CAPPluginCall) {
-        Task { call.resolve(await Self.currentEntitlement()) }
+        Task {
+            call.resolve(await Self.currentEntitlement())
+            learnRenewal()
+        }
     }
 
     @objc func restore(_ call: CAPPluginCall) {
@@ -88,6 +93,7 @@ public class NibStorePlugin: CAPPlugin, CAPBridgedPlugin {
             do {
                 try await AppStore.sync()
                 call.resolve(await Self.currentEntitlement())
+                self.learnRenewal()
             } catch StoreKitError.userCancelled {
                 // Dismissing the sign-in is the writer's choice, not a failure.
                 call.reject("Cancelled.", "cancelled")
@@ -133,29 +139,68 @@ public class NibStorePlugin: CAPPlugin, CAPBridgedPlugin {
         return described
     }
 
-    /// Read from StoreKit's own verified, on-device record, so it works offline.
-    static func currentEntitlement() async -> [String: Any] {
+    /// Nib Plus as this device has it, if it has: the App Store's signed, unrevoked transaction.
+    private static func current() async -> VerificationResult<Transaction>? {
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result,
                   productIDs.contains(transaction.productID),
                   transaction.revocationDate == nil else { continue }
-            // The signed transaction goes to the sync server, which checks
-            // Apple's signature itself rather than taking this app's word.
-            var state: [String: Any] = ["active": true, "productId": transaction.productID, "jws": result.jwsRepresentation]
-            if let expires = transaction.expirationDate {
-                state["expiresAt"] = expires.timeIntervalSince1970 * 1000
-            }
-            if let product = try? await Product.products(for: [transaction.productID]).first,
-               let statuses = try? await product.subscription?.status,
-               let status = statuses.first(where: {
-                   if case .verified(let current) = $0.transaction { return current.originalID == transaction.originalID }
-                   return false
-               }),
-               case .verified(let renewal) = status.renewalInfo {
-                state["willRenew"] = renewal.willAutoRenew
-            }
-            return state
+            return result
         }
-        return ["active": false]
+        return nil
+    }
+
+    /// Read from StoreKit's own verified, on-device record, so it works offline
+    /// and answers at once. Whether it renews isn't in that record: it's as
+    /// the App Store last said (`learnRenewal`), and left out till it has.
+    static func currentEntitlement() async -> [String: Any] {
+        guard let result = await current(), case .verified(let transaction) = result else { return ["active": false] }
+        // The signed transaction goes to the sync server, which checks
+        // Apple's signature itself rather than taking this app's word.
+        var state: [String: Any] = ["active": true, "productId": transaction.productID, "jws": result.jwsRepresentation]
+        if let expires = transaction.expirationDate {
+            state["expiresAt"] = expires.timeIntervalSince1970 * 1000
+        }
+        if let renews = await renewals.said(of: transaction.originalID) {
+            state["willRenew"] = renews
+        }
+        return state
+    }
+
+    /// Whether Nib Plus renews, which only the App Store can say, and over
+    /// the network: asked once the page has its answer, not before it, and
+    /// told to the page (`entitlementChanged`) when it's first known or has
+    /// changed. The day's coins wait to know whether Plus is on
+    /// (src/lib/useUnprompted.ts), and with this asked first they waited on
+    /// the App Store too, however long it took.
+    private func learnRenewal() {
+        Task { [weak self] in
+            guard let result = await Self.current(), case .verified(let transaction) = result,
+                  let product = try? await Product.products(for: [transaction.productID]).first,
+                  let statuses = try? await product.subscription?.status,
+                  let status = statuses.first(where: {
+                      if case .verified(let current) = $0.transaction { return current.originalID == transaction.originalID }
+                      return false
+                  }),
+                  case .verified(let renewal) = status.renewalInfo,
+                  await Self.renewals.say(renewal.willAutoRenew, of: transaction.originalID) else { return }
+            self?.notifyListeners("entitlementChanged", data: await Self.currentEntitlement())
+        }
+    }
+
+    private static let renewals = Renewals()
+}
+
+/// Whether each subscription renews, as the App Store last said, by its first transaction.
+private actor Renewals {
+    private var known: [UInt64: Bool] = [:]
+
+    func said(of subscription: UInt64) -> Bool? { known[subscription] }
+
+    /// Kept: whether it's news.
+    func say(_ renews: Bool, of subscription: UInt64) -> Bool {
+        let news = known[subscription] != renews
+        known[subscription] = renews
+        return news
     }
 }

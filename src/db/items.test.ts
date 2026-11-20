@@ -852,3 +852,56 @@ describe('items.createMany', () => {
     expect(emitted).toBe(2)
   })
 })
+
+// Sync applies what it pulls in a transaction of its own, and when one of those ends Dexie reads every row afresh:
+// each a new object, so every cache kept by a body (lib/text, lib/writtenHere, lib/links) missed and every card redrew.
+describe('rows a write left alone, across a fresh read of them all', () => {
+  const of = (rows: Item[], id: string) => rows.find((row) => row.id === id)!
+  const row = (id: string, more: Partial<Item> = {}): Item => ({ id, kind: 'note', body: body(id), version: 1, rev: 1, createdAt: 1, updatedAt: 1, ...more })
+
+  it('are the objects they were, and the rest as read: changed, new, or gone', () => {
+    const before = [row('same'), row('edited'), row('filed'), row('gone')]
+    const read = [row('new'), row('same'), row('edited', { version: 2, rev: 2, updatedAt: 2 }), row('filed', { rev: 2, folder: 'Drafts' })]
+    const kept = items.keepSame(before, read)
+    expect(kept.map((item) => item.id)).toEqual(['new', 'same', 'edited', 'filed'])
+    expect(of(kept, 'same')).toBe(of(before, 'same'))
+    expect(of(kept, 'edited')).toBe(of(read, 'edited'))
+    expect(of(kept, 'filed')).toBe(of(read, 'filed'))
+    expect(of(kept, 'new')).toBe(of(read, 'new'))
+  })
+
+  it('are the list it was, when nothing in it has changed', () => {
+    const before = [row('one'), row('two')]
+    expect(items.keepSame(before, [row('one'), row('two')])).toBe(before)
+    expect(items.keepSame(before, [row('two'), row('one')])).not.toBe(before)
+    expect(items.keepSame(undefined, before)).toBe(before)
+  })
+
+  it('are told by all three of `rev`, `version` and `updatedAt`: a backup restored can bring an older text under the same two', () => {
+    const before = [row('restored', { version: 3, rev: 3, updatedAt: 30 })]
+    const read = [row('restored', { version: 3, rev: 3, updatedAt: 20 })]
+    expect(items.keepSame(before, read)[0]).toBe(read[0])
+  })
+
+  it('are kept through a write made in a transaction of its own, which has every row read afresh', async () => {
+    const untouched = await items.create('note', body('Untouched'))
+    const changed = await items.create('note', body('As it was'))
+    const reads: Item[][] = []
+    const kept: Item[][] = []
+    const live = liveQuery(() => items.listAll()).subscribe((rows) => {
+      reads.push(rows)
+      kept.push(items.keepSame(kept.at(-1), rows))
+    })
+    try {
+      await vi.waitFor(() => expect(reads).toHaveLength(1))
+      await db.transaction('rw', db.items, () => db.items.update(changed, { body: body('Changed there'), version: 2, rev: 2, updatedAt: Date.now() + 1 }))
+      await vi.waitFor(() => expect(reads).toHaveLength(2))
+      // Dexie's doing, and the reason for this.
+      expect(of(reads[1], untouched)).not.toBe(of(reads[0], untouched))
+      expect(of(kept[1], untouched)).toBe(of(kept[0], untouched))
+      expect(of(kept[1], changed).body).toEqual(body('Changed there'))
+    } finally {
+      live.unsubscribe()
+    }
+  })
+})

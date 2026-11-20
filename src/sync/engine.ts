@@ -64,11 +64,16 @@ const MAX_ROUNDS = 3
  * `tooLarge`: how many documents are too big to send at all. They stay on this
  * device. `copies`: how many edits a lock beat were kept as copies (see copy).
  * `moved`: the words each document gained (or lost) by what was applied, for
- * the daily goal to leave out (lib/writtenHere `notWrittenHere`).
+ * the daily goal to leave out (lib/writtenHere `notWrittenHere`). `clean`:
+ * nothing of the documents or their history is left to send, so a look
+ * needn't read through them again till one is written (syncOnce `unchanged`).
  */
-export type PassResult = { changed: string[]; full: boolean; tooLarge: number; copies: number; moved: Map<string, number> }
-/** `left`: the originals named by documents here that a lock arriving has sealed without them (lib/fileUse). */
-type Made = { copies: number; moved: Map<string, number>; left: string[] }
+export type PassResult = { changed: string[]; full: boolean; tooLarge: number; copies: number; moved: Map<string, number>; clean: boolean }
+/**
+ * `left`: the originals named by documents here that a lock arriving has sealed without them (lib/fileUse).
+ * `took`: the pull brought something other than this device's own pushes coming back.
+ */
+type Made = { copies: number; moved: Map<string, number>; left: string[]; took: boolean }
 
 const wordsIn = (body: JSONContent) => countWords(plainText(body))
 
@@ -173,11 +178,31 @@ async function copyHere(kind: Kind, unsealed: NonNullable<Item['unsealed']>, mad
 }
 
 /** Pull every page of changes and apply them. Returns the ids of items that changed. */
+/**
+ * Whether an answer to a pull from `since` could be the server's own (worker/library changes): its records numbered
+ * in whole numbers, each past the one before and all past `since`; the place to resume from the last of them, or
+ * `since` again; and more to come only when something came. The number is kept and asked from at every look after,
+ * so one answer giving a number from nowhere would leave this device asking from past everything the library will
+ * hold, until its owner fetched everything again (the red-team review of 2026-11-17). A record made up whole, with
+ * a number to match, still passes: that needs the server to say how far its numbers have got, which it doesn't.
+ */
+function sound(page: Awaited<ReturnType<Api['changes']>>, since: number): boolean {
+  if (!Array.isArray(page.records)) return false
+  let last = since
+  for (const record of page.records) {
+    if (!Number.isSafeInteger(record.s) || record.s! <= last) return false
+    last = record.s!
+  }
+  return page.seq === last && !(page.more && last === since)
+}
+
 async function pull(keys: SyncKeys, api: Api, made: Made, started: number): Promise<string[]> {
   const changed = new Set<string>()
   const strays: Stray[] = []
   for (let more = true; more; ) {
-    const page = await api.changes(await cursor())
+    const since = await cursor()
+    const page = await api.changes(since)
+    if (!sound(page, since)) throw new Error('The sync server’s answer made no sense.')
     more = page.more
     // Decrypt first: a Dexie transaction commits the moment it awaits
     // anything that is not Dexie, and WebCrypto is not.
@@ -241,6 +266,7 @@ async function apply(record: Wire, payload: Payload | null, made: Made, strays: 
   const seq = record.s!
   const known = await db.syncRecords.get(record.k)
   if (known && known.seq >= seq) return null // our own push, coming back
+  made.took = true
 
   const count = payload?.t === 'item' || payload?.t === 'gone' ? payload.n : undefined
   if (known?.type === 'item' && Number.isFinite(count) && count! <= (known.n ?? 0)) return refuse(known, seq)
@@ -446,12 +472,15 @@ type Outgoing = { wire: Wire; record: SyncRecord }
  * Everything that differs from what the server last acknowledged; `known`, what it has (none: a library just made, fill).
  * One at a time, sealed as it's asked for: a first sync's whole backlog, sealed
  * and padded, was too much to hold in memory on an older iPhone.
+ * `documents`: whether the documents and their history are read through at
+ * all; not, only the stamps, the folders' settings and the looks are looked
+ * at. `waits`: `settling` is set if a version is too new to send yet.
  */
-async function* outgoing(keys: SyncKeys, now: number, known: SyncRecord[]): AsyncGenerator<Outgoing> {
+async function* outgoing(keys: SyncKeys, now: number, known: SyncRecord[], documents: boolean, waits: { settling: boolean }): AsyncGenerator<Outgoing> {
   const byPair = new Map(known.map((record) => [pairKey(record.type, record.id), record]))
 
   // Keys, not bodies: the [id+rev] index answers "what changed" on its own.
-  const itemKeys = (await db.items.orderBy('[id+rev]').keys()) as unknown as [string, number][]
+  const itemKeys = documents ? ((await db.items.orderBy('[id+rev]').keys()) as unknown as [string, number][]) : []
   const localItems = new Set<string>()
   // Kept on this device only (Item.deviceOnly): never sent, and what the
   // server has of them, their history too, is taken off it as a document
@@ -496,17 +525,22 @@ async function* outgoing(keys: SyncKeys, now: number, known: SyncRecord[]): Asyn
 
   const localRevisions = new Set<string>()
   const settled: string[] = []
-  await db.revisions.orderBy('[itemId+createdAt]').eachKey((key, cursor) => {
-    const id = cursor.primaryKey as string
-    // The history of one kept on this device only: as if it weren't here, so not sent, and taken off the server (below).
-    if (deviceOnly.has((key as [string, number])[0])) return
-    localRevisions.add(id)
-    const createdAt = (key as [string, number])[1]
-    const synced = byPair.get(pairKey('revision', id))
-    // History held after a delete without a seal stays on this device.
-    // Past what the server keeps, it isn't sent at all (after a restore, say).
-    if ((!synced || (synced.deleted && !synced.held)) && createdAt < now - SETTLE_MS && createdAt >= now - SERVER_HISTORY_MS) settled.push(id)
-  })
+  if (documents) {
+    await db.revisions.orderBy('[itemId+createdAt]').eachKey((key, cursor) => {
+      const id = cursor.primaryKey as string
+      // The history of one kept on this device only: as if it weren't here, so not sent, and taken off the server (below).
+      if (deviceOnly.has((key as [string, number])[0])) return
+      localRevisions.add(id)
+      const createdAt = (key as [string, number])[1]
+      const synced = byPair.get(pairKey('revision', id))
+      // History held after a delete without a seal stays on this device.
+      // Past what the server keeps, it isn't sent at all (after a restore, say).
+      if (!synced || (synced.deleted && !synced.held)) {
+        if (createdAt >= now - SETTLE_MS) waits.settling = true
+        else if (createdAt >= now - SERVER_HISTORY_MS) settled.push(id)
+      }
+    })
+  }
   for (const id of settled) {
     const revision = await db.revisions.get(id)
     if (!revision) continue
@@ -551,6 +585,8 @@ async function* outgoing(keys: SyncKeys, now: number, known: SyncRecord[]): Asyn
     yield { wire: { k, b: sentLooks?.seq ?? 0, p: await seal(keys, k, { t: 'looks', v: looks }) }, record: { k, type: 'looks', id: LOOKS, seq: 0, sum: looksSum } }
   }
 
+  // Not read through, none here was seen: that's not to say any is gone.
+  if (!documents) return
   for (const record of known) {
     if (record.deleted || record.type === 'stamps' || record.type === 'folders' || record.type === 'looks') continue
     if (record.type === 'item' ? localItems.has(record.id) : localRevisions.has(record.id)) continue
@@ -590,11 +626,12 @@ async function sendBatch(api: Api, batch: Outgoing[]) {
   return { results, byKey: new Map(batch.map((entry) => [entry.wire.k, entry.record])) }
 }
 
-/** Push in batches. Returns whether anything conflicted, whether the library is full, and what was too big to send. */
-async function push(api: Api, records: AsyncIterable<Outgoing>, started: number): Promise<{ conflicts: boolean; full: boolean; tooLarge: number }> {
+/** Push in batches. Returns whether anything conflicted, whether the library is full, what was too big to send, and whether the server's answer left any record out. */
+async function push(api: Api, records: AsyncIterable<Outgoing>, started: number): Promise<{ conflicts: boolean; full: boolean; tooLarge: number; unanswered: boolean }> {
   let conflicts = false
   let full = false
   let tooLarge = 0
+  let unanswered = false
   const pulled = await cursor()
   for await (const batch of batches(records)) {
     // Before sending, too: a restore landing while `outgoing` read mixed what
@@ -608,6 +645,9 @@ async function push(api: Api, records: AsyncIterable<Outgoing>, started: number)
       continue
     }
     const { results, byKey } = sent
+    // Sent and not answered for: not known to be taken, so not to be counted as sent (syncOnce `clean`).
+    const answered = new Set(results.map((result) => result.k))
+    if (batch.some((entry) => !answered.has(entry.wire.k))) unanswered = true
     await fenced(started, [db.syncRecords, db.syncMeta], async () => {
       for (const result of results) {
         if ('s' in result) await db.syncRecords.put({ ...byKey.get(result.k)!, seq: result.s })
@@ -623,26 +663,40 @@ async function push(api: Api, records: AsyncIterable<Outgoing>, started: number)
       }
     })
   }
-  return { conflicts, full, tooLarge }
+  return { conflicts, full, tooLarge, unanswered }
 }
 
-export async function syncOnce(keys: SyncKeys, api: Api, now = Date.now()): Promise<PassResult> {
+/**
+ * `unchanged`: nothing has been written in the documents here, or their
+ * history, since a pass that was `clean` (sync/session keeps count). They
+ * aren't then read through for what to send, every key of them, unless the
+ * pull brings something: what it brings can ask for a document here to go
+ * back up without writing to it (`refuse`, a delete an edit here beat). The
+ * stamps, the folders' settings and the looks are looked at either way.
+ */
+export async function syncOnce(keys: SyncKeys, api: Api, now = Date.now(), unchanged = false): Promise<PassResult> {
   const changed = new Set<string>()
-  const made: Made = { copies: 0, moved: new Map(), left: [] }
+  const made: Made = { copies: 0, moved: new Map(), left: [], took: false }
   const started = await epoch()
   let full = false
   let tooLarge = 0
+  let clean = true
   for (let round = 0; round < MAX_ROUNDS; round++) {
     for (const id of await pull(keys, api, made, started)) changed.add(id)
-    const result = await push(api, outgoing(keys, now, await db.syncRecords.toArray()), started)
+    const documents = !unchanged || made.took
+    const known = documents ? await db.syncRecords.toArray() : await db.syncRecords.where('[type+id]').anyOf([['stamps', STAMPS], ['folders', FOLDERS], ['looks', LOOKS]]).toArray()
+    const waits = { settling: false }
+    const result = await push(api, outgoing(keys, now, known, documents, waits), started)
     full ||= result.full
     tooLarge = result.tooLarge
+    // Read through, and something of them not sent: refused, too big, no room for it, not answered for, or too new yet.
+    if (documents) clean = !(result.conflicts || result.full || result.tooLarge || result.unanswered || waits.settling)
     // A conflict means someone else wrote first: pull their version, merge,
     // and push again. Bounded, because a device writing flat out could
     // otherwise keep this one chasing it; the next pass carries on.
     if (!result.conflicts) break
   }
-  return { changed: [...changed], full, tooLarge, copies: made.copies, moved: made.moved }
+  return { changed: [...changed], full, tooLarge, copies: made.copies, moved: made.moved, clean }
 }
 
 /**
@@ -684,7 +738,7 @@ export async function expireHistory(api: Api, now = Date.now()): Promise<void> {
  */
 export async function fill(keys: SyncKeys, api: Api, now = Date.now()): Promise<SyncRecord[]> {
   const filled: SyncRecord[] = []
-  for await (const batch of batches(outgoing(keys, now, []))) {
+  for await (const batch of batches(outgoing(keys, now, [], true, { settling: false }))) {
     const sent = await sendBatch(api, batch)
     // Too big to send at all, as to the old library: it stays here (push).
     if (!sent) continue

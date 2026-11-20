@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from 'react'
+import { useEffect, useReducer, useRef } from 'react'
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import type { Item, Reminder, Repeat } from '../db/db'
 import * as items from '../db/items'
@@ -193,9 +193,11 @@ export const silentHere = () => silent
 export async function refreshReminders(): Promise<void> {
   if (!remindersAvailable) return
   const { reminders } = await reminderPlugin.list()
+  const was = JSON.stringify([[...waiting], [...snoozes]])
   waiting = new Map(reminders.filter((reminder) => !reminder.snoozed).map((reminder) => [reminder.id, reminder]))
   snoozes = new Map(reminders.filter((reminder) => reminder.snoozed).map((reminder) => [reminder.id, reminder.at]))
-  changed()
+  // Said only when it has: every look said so, and each had the whole app drawn again.
+  if (JSON.stringify([[...waiting], [...snoozes]]) !== was) changed()
 }
 
 /** Until when this note's reminder is snoozed on this device, if it is. */
@@ -243,6 +245,11 @@ export const forget = (id: string) => items.setReminder(id, null)
 
 const KEPT_KEY = 'nib-reminders-kept'
 
+/** All that `reminderPlan` reads of `documents`: each reminder, on which note, and what it's to say. */
+const saidOfAll = (documents: Item[]) => JSON.stringify(documents.filter((item) => item.reminder).map((item) => [item.id, item.reminder, saidOf(item)]))
+/** How long a library that says the same of its reminders goes without a look (`useKeptReminders`). */
+const LOOK_MS = 10 * 60_000
+
 /** One at a time, and the library as it is when its turn comes. */
 let turn: Promise<void> = Promise.resolve()
 let latest: Item[] | null = null
@@ -270,6 +277,7 @@ export function keepReminders(documents: Item[]): Promise<void> {
       }
       const plan = reminderPlan(library, reminders, Date.now())
       if (plan.cancel.length) await reminderPlugin.cancel({ ids: plan.cancel })
+      const wasSilent = silent
       silent = false
       for (const one of plan.ring) {
         try {
@@ -284,6 +292,7 @@ export function keepReminders(documents: Item[]): Promise<void> {
         }
       }
       await refreshReminders()
+      if (silent !== wasSilent) changed()
     })
     .catch((error: unknown) => console.warn('Nib: could not keep the reminders', error))
   return turn
@@ -296,13 +305,20 @@ export function keepReminders(documents: Item[]): Promise<void> {
  * `ready`: the library has been read.
  */
 export function useKeptReminders(listed: Item[], archived: Item[], ready: boolean) {
+  // What the last look was given of the reminders, and when.
+  const looked = useRef({ said: '', at: -Infinity })
   useEffect(() => {
     if (!ready) return
+    const documents = [...listed, ...archived]
     const keep = () => {
       // Only in front: what an earlier Nib left is written into its notes, and a write as Nib goes to the back is cut off.
-      if (document.visibilityState === 'visible') void keepReminders([...listed, ...archived])
+      if (document.visibilityState !== 'visible') return
+      looked.current = { said: saidOfAll(documents), at: Date.now() }
+      void keepReminders(documents)
     }
-    keep()
+    // The library changes with every save, and nearly none changes a reminder: the device isn't asked again for
+    // those, twice each, but for one that does, and every so often besides, for a time that has come round.
+    if (saidOfAll(documents) !== looked.current.said || Date.now() - looked.current.at >= LOOK_MS) keep()
     document.addEventListener('visibilitychange', keep)
     return () => document.removeEventListener('visibilitychange', keep)
   }, [listed, archived, ready])

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { signedMessage, verifySignature, bodyHash } from '../../worker/signing'
 import { deriveKeys, newCode, type SyncKeys } from './crypto'
-import { httpApi } from './api'
+import { httpApi, MOST_ANSWER, within } from './api'
 
 const BASE = 'https://sync.nib.test'
 
@@ -165,6 +165,26 @@ describe('sync requests', () => {
     await api.push([])
     expect(server.seen.map((request) => request.authorization)).toEqual(Array(2).fill(`Bearer ${keys.libraryId}.${keys.secret}`))
     await expect(api.requireSigned(true)).rejects.toMatchObject({ status: 400 })
+    vi.unstubAllGlobals()
+  })
+
+  // The red-team review of 2026-11-17: an answer was read whole, whatever its size, and one of gigabytes ends the page.
+  it('read an answer only as far as the most one may be', async () => {
+    const bytes = new TextEncoder().encode('x'.repeat(100))
+    expect(new TextDecoder().decode(await within(new Response(bytes), 100))).toBe('x'.repeat(100))
+    await expect(within(new Response(bytes), 99)).rejects.toThrow('The sync server’s answer was too large.')
+    await expect(within(new Response(bytes, { headers: { 'Content-Length': '5000' } }), 4999)).rejects.toThrow('too large')
+    expect((await within(new Response(null, { status: 204 }), 10)).length).toBe(0)
+  })
+
+  it('refuse an answer past the most one may be, as text or as a file', async () => {
+    const keys = await deriveKeys(newCode())
+    const huge = new Uint8Array(MOST_ANSWER + 1)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(huge, { headers: { 'Content-Type': 'application/octet-stream' } })))
+    const api = httpApi(BASE, { ...keys, sign: undefined })
+    await expect(api.getFile('a'.repeat(43))).rejects.toThrow('too large')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(huge)))
+    await expect(api.changes(0)).rejects.toThrow('too large')
     vi.unstubAllGlobals()
   })
 

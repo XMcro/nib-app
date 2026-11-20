@@ -8,6 +8,16 @@ import { asPost, send, WHY, type Sent } from './clip'
  *
  * It takes a clip only from this extension, and never where to send one.
  */
+
+// The code is for the popup and this script alone. Left as a browser has it, the storage can be read by the
+// extension's script in a page too (the picker), and so by a page that got the better of it (the red-team review
+// of 2026-11-17). Chrome and Edge take this; a browser that doesn't goes on as before.
+try {
+  void chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => {})
+} catch {
+  // As before.
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   const asked = message as { type?: unknown; post?: unknown } | null
   if (sender.id !== chrome.runtime.id || asked?.type !== 'clip') return

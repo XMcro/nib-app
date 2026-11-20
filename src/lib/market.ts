@@ -134,7 +134,7 @@ export const asTrades = (trades: unknown): Trade[] =>
               (one.kind === 'login'
                 ? one.step !== undefined && [false, true].some((plus) => loginCoins(one.step!, plus) === trade.earned) && (one.day < LEDGER_FROM || one.id === `login:${one.day}`)
                 : one.kind === 'code'
-                  ? codeCoinsKept(one.id.slice('code:'.length), trade.earned, one.claim, one.sig)
+                  ? one.id.startsWith('code:') && codeCoinsKept(one.id.slice('code:'.length), trade.earned, one.claim, one.sig)
                   : one.day < LEDGER_FROM))
           if (earned) one.earned = trade.earned
           for (const [key, value] of Object.entries(trade)) if (!KNOWN.has(key)) (one as Record<string, unknown>)[key] = value

@@ -64,8 +64,9 @@ export const sheetUp = () => document.querySelector('[aria-modal="true"]') !== n
  */
 const cardUp = () => document.querySelector('[role="dialog"]:not([aria-modal])') !== null
 
-export function quiet(): boolean {
-  if (document.visibilityState !== 'visible' || Date.now() - typedAt < IDLE_MS || twoInARow()) return false
+/** `arrival`: for the pack that follows the day's coins, the one arrival with them, whatever came up before those. */
+export function quiet(arrival = false): boolean {
+  if (document.visibilityState !== 'visible' || Date.now() - typedAt < IDLE_MS || (!arrival && twoInARow())) return false
   if (sheetUp() || cardUp()) return false
   return !(touchApp && caretInText())
 }

@@ -155,8 +155,9 @@ export async function handleShares(request: Request, deps: ShareDeps): Promise<R
     const admitted = await subscriber.admit(slug, expires, paid.claims.purchasedAt)
     if (admitted.status !== 200) return reply(admitted)
     const created = await deps.share(slug).create({ slug, ownerHash: owner, subscriber: paid.key, days: days as number, entitledUntil: paid.claims.expiresAt, doc, ...(once ? { once } : {}), ...(reveal ? { reveal: reveal as string } : {}) })
-    // Only a place it took: a share posted again keeps the one it has.
-    if (created.status !== 201 && (admitted.body as { added: boolean }).added) await subscriber.release(slug)
+    // Only a place it took, and that no other request has counted on since: a share posted again keeps the one it has.
+    const { added, claim } = admitted.body as { added: boolean; claim: number }
+    if (created.status !== 201 && added) await subscriber.release(slug, claim)
     return reply(created)
   }
 

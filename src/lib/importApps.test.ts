@@ -340,6 +340,27 @@ describe('Markdown that marked is slow on', () => {
     expect(plainText(documents[0].body)).toContain('item 699')
   })
 
+  // On one line, where no indentation holds them back: marked follows each quote or list marker a level down, and
+  // past a few thousand it ran out of stack. A post to the inbox of 3,000 `>` did it (the red-team review of 2026-11-17).
+  it('reads a line of more quote or list markers than marked can follow, keeping its words', async () => {
+    for (const deep of ['>'.repeat(3000) + ' quoted', '> '.repeat(40_000) + 'quoted', '- '.repeat(20_000) + 'listed', '* '.repeat(20_000) + 'starred', '1. '.repeat(5000) + 'numbered', '> - '.repeat(5000) + 'both']) {
+      const { documents } = await read(file(`Before\n\n${deep}\n\nAfter`, 'deep.md'))
+      const text = plainText(documents[0].body)
+      expect(text, deep.slice(0, 8)).toContain('Before')
+      expect(text, deep.slice(0, 8)).toContain(deep.split(' ').at(-1)!)
+      expect(text, deep.slice(0, 8)).toContain('After')
+    }
+  })
+
+  it('leaves quotes and lists nested as far as anyone nests them as they were', async () => {
+    const { documents } = await read(file('> > > Thrice quoted\n\n- - Twice listed\n\n1. > A quote in a list', 'nested.md'))
+    const depth = (node: JSONContent, type: string): number => (node.type === type ? 1 : 0) + Math.max(0, ...(node.content ?? []).map((child) => depth(child, type)))
+    expect(depth(documents[0].body, 'blockquote')).toBe(3)
+    const text = plainText(documents[0].body)
+    for (const words of ['Thrice quoted', 'Twice listed', 'A quote in a list']) expect(text).toContain(words)
+    expect(text).not.toMatch(/[\\>]|- /)
+  })
+
   it('keeps a long checklist’s boxes among many marks', async () => {
     const list = Array.from({ length: 1200 }, (_, i) => `- [${i % 3 ? ' ' : 'x'}] task ${i}`).join('\n')
     const { documents } = await read(file(list, 'tasks.md'))
