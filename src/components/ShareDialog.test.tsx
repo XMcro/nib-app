@@ -101,7 +101,7 @@ describe('ShareDialog', () => {
       expect(box.checked).toBe(false)
       expect(screen.queryByText(/The first reader to open it sees it/)).toBeNull()
       await userEvent.click(box)
-      expect(screen.getByText('The first reader to open it sees it. Then it’s deleted from Nib’s server, and the link stops working.')).toBeTruthy()
+      expect(screen.getByText('The first reader to open it sees it. Then the link stops working for anyone else, and it’s deleted from Nib’s server ten minutes later.')).toBeTruthy()
       // What it says at the top is no longer that anyone with the link can read it.
       expect(screen.getByText('The server stores this encrypted, until one reader opens it. They can leave notes.')).toBeTruthy()
       expect(screen.queryByText(/Anyone with the link/)).toBeNull()
@@ -130,7 +130,7 @@ describe('ShareDialog', () => {
     it('says so once it has been read', async () => {
       vi.mocked(shareModule.shareStatus).mockResolvedValueOnce({ read: true })
       mount(item({ shares: [once] }))
-      expect(await screen.findByText('It has been read, and is deleted from Nib’s server. The link no longer works.')).toBeTruthy()
+      expect(await screen.findByText('It has been read, and the link no longer works. Nib’s server deletes its copy ten minutes after the reading.')).toBeTruthy()
     })
 
     // Left open while the link is sent from another app: on an iPhone it still said "Not read yet" after the reader had read it.
@@ -147,7 +147,7 @@ describe('ShareDialog', () => {
       vi.mocked(shareModule.shareStatus).mockResolvedValueOnce({ read: true })
       visibility.mockReturnValue('visible')
       document.dispatchEvent(new Event('visibilitychange'))
-      expect(await screen.findByText('It has been read, and is deleted from Nib’s server. The link no longer works.')).toBeTruthy()
+      expect(await screen.findByText('It has been read, and the link no longer works. Nib’s server deletes its copy ten minutes after the reading.')).toBeTruthy()
 
       // And no longer once the dialog has closed.
       cleanup()

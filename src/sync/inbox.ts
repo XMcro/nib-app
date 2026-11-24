@@ -1,13 +1,14 @@
 import type { JSONContent } from '@tiptap/react'
 import { base64url, fromBase64url } from '../../worker/base64'
 import { clipperCode, newInboxKeys, openPost, type Post } from '../../worker/inbox-seal'
-import { bodyHash } from '../../worker/signing'
+import { bodyHash, inboxCheck } from '../../worker/signing'
 import type { Kind } from '../db/db'
 import * as items from '../db/items'
 import { markdownToBody } from '../lib/import'
 import { withWebPage } from '../lib/importApps'
 import { SERVER } from '../lib/server'
 import { isTime } from '../lib/time'
+import type { Inbox } from '../../worker/wire.mjs'
 import type { Api } from './api'
 import { open, seal, type SyncKeys } from './crypto'
 
@@ -49,10 +50,32 @@ const addressOf = (keys: SyncKeys, { secret }: Kept) => `${SERVER || location.or
 export type InboxAt = { address: string; clipper: string }
 const at = (keys: SyncKeys, mine: Kept): InboxAt => ({ address: addressOf(keys, mine), clipper: clipperCode(addressOf(keys, mine), publicKey(mine)) })
 
+/**
+ * What this device keeps of the inbox the server told it of, null if it has none this device can use. And the
+ * server put right if the key it seals posts with, or the address it takes them at, isn't the one kept: only a
+ * device can have made what's kept, so those are the library's. Whoever had caught a request in passing could put
+ * a key of their own there, and leave the devices to throw away what they couldn't open; or another address, and
+ * leave the writer's own, still shown in Settings, taking nothing (the server audit of 2026-11-23). The address
+ * is known by a check of it (worker/signing `inboxCheck`), never by the hash that sets one. A server from before
+ * it said either says neither.
+ *
+ * It narrows that, and doesn't close it: the look that finds the wrong key comes after a post has been sealed
+ * with it. What closes it is Require signed sync (Settings), which takes nothing by the code's hash alone.
+ */
+async function own(keys: SyncKeys, api: Api, { on, kept, key, check }: Inbox): Promise<Kept | null> {
+  const mine = on && kept ? await opened(keys, kept) : null
+  if (!mine) return null
+  const [itsKey, itsAddress] = [publicKey(mine), await bodyHash(encoder.encode(mine.secret))]
+  if ((key !== undefined && key !== itsKey) || (check !== undefined && check !== (await inboxCheck(itsAddress)))) {
+    console.warn('Nib: the inbox’s key or address on the server wasn’t this library’s, and has been put back')
+    await api.setInbox(itsKey, itsAddress, kept!)
+  }
+  return mine
+}
+
 /** Where the inbox is, or null if the library has none this device can use. */
 export async function inboxAddress(keys: SyncKeys, api: Api): Promise<InboxAt | null> {
-  const { on, kept } = await api.inbox()
-  const mine = on && kept ? await opened(keys, kept) : null
+  const mine = await own(keys, api, await api.inbox())
   return mine && at(keys, mine)
 }
 
@@ -135,8 +158,9 @@ export async function takePosts(keys: SyncKeys, api: Api, folder?: string): Prom
   let made = 0
   // A server that always said there were more would be asked for ever: the rest wait for the next look.
   for (let round = 0; round < MOST_ROUNDS; round++) {
-    const { on, kept, posts, more } = await api.inbox()
-    const mine = on && kept ? await opened(keys, kept) : null
+    const inbox = await api.inbox()
+    const { posts, more } = inbox
+    const mine = await own(keys, api, inbox)
     if (!mine) return made
     const privateKey = await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', d: mine.d, x: mine.x, y: mine.y }, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits'])
     for (const post of posts) {

@@ -5,10 +5,10 @@ import * as items from '../db/items'
 import { useCounted } from '../lib/counts'
 import { CANT_REACH } from '../lib/notices'
 import { nativeApp } from '../lib/platform'
-import { titleOf } from '../lib/text'
 import type { OpenDocument } from '../lib/useOpenDocument'
 import * as vault from '../lib/vault'
 import { freeShareHolder, liveShare, reportRenewal, revokeShare, stopSharingQuestion } from './index'
+import { nameOf } from '../lib/fountain'
 
 /** Share a draft (components/ShareDialog): the dialog and how it's wired, its rows in the palette, a renewal told to the server, and taking a locked note's share down. */
 export function useSharing({ session, setNotice, activeItem, documents, subscribed, jws, askPlus, openNotes }: {
@@ -60,7 +60,7 @@ export function useSharing({ session, setNotice, activeItem, documents, subscrib
         freeHolder={(() => {
           // Trash too: a trashed document's link still serves until it's deleted for good.
           const holder = freeShareHolder(documents)
-          return holder && holder.id !== activeItem.id ? titleOf(holder.body) : undefined
+          return holder && holder.id !== activeItem.id ? nameOf(holder) : undefined
         })()}
         onShares={(shares: ShareRef[]) => void guarded(() => items.setShares(activeItem.id, shares))}
         onOpenNotes={() => {

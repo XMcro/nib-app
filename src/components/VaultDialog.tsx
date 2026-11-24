@@ -30,6 +30,15 @@ export function VaultDialog({ mode, onSubmit, onClose }: { mode: VaultMode; onSu
   const [unlock, setUnlock] = useState<{ name: string; stored: boolean } | null>(null)
   const [keep, setKeep] = useState(false)
   const passcodeField = useRef<HTMLInputElement>(null)
+  // One try at a time, whatever `busy` has yet to be drawn as: Return twice ran it twice. And none once the dialog has gone.
+  const trying = useRef(false)
+  const gone = useRef(false)
+  useEffect(() => {
+    gone.current = false
+    return () => {
+      gone.current = true
+    }
+  }, [])
 
   const foundUnlock = useEffectEvent((found: typeof unlock) => {
     setUnlock(found)
@@ -44,7 +53,7 @@ export function VaultDialog({ mode, onSubmit, onClose }: { mode: VaultMode; onSu
 
   async function viaBiometry(found = unlock) {
     const recalled = await recallPasscode()
-    if (recalled) await attempt(recalled, found, true)
+    if (recalled && !gone.current) await attempt(recalled, found, true)
   }
 
   async function submit(event: React.FormEvent) {
@@ -58,6 +67,8 @@ export function VaultDialog({ mode, onSubmit, onClose }: { mode: VaultMode; onSu
   }
 
   async function attempt(given: string, found: typeof unlock, recalled: boolean) {
+    if (trying.current) return
+    trying.current = true
     setBusy(true)
     setMessage('')
     try {
@@ -73,6 +84,7 @@ export function VaultDialog({ mode, onSubmit, onClose }: { mode: VaultMode; onSu
         setMessage(`The passcode ${found.name} kept no longer opens the vault. Type the new one.`)
       } else setMessage(error instanceof VaultError ? error.message : 'Something went wrong. Try again.')
     } finally {
+      trying.current = false
       setBusy(false)
     }
   }

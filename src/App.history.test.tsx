@@ -60,4 +60,46 @@ describe('App restoring from history', () => {
     expect(textOf((await items.get('second'))!.body)).toBe('SECOND')
     expect(textOf((await items.get('first'))!.body)).toBe('FIRST, NOW')
   })
+
+  const openFirstVersion = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(await screen.findByText('FIRST, NOW'))
+    await waitFor(() => expect(screen.getByTestId<HTMLTextAreaElement>('editor').value).toBe('FIRST, NOW'))
+    await user.keyboard(`{${MOD}>}k{/${MOD}}`)
+    await user.click(await screen.findByRole('button', { name: /^Version history/ }))
+    const versions = await screen.findByRole('list', { name: 'Versions' })
+    await user.click(within(versions).getAllByRole('button').at(-1)!)
+  }
+
+  // Stamped in the same millisecond, the two came back in either order, and the next save could fold into the wrong one.
+  it('keeps the text before a restore and the text restored as two versions, in that order', async () => {
+    await items.create('note', bodyOf('FIRST, OLD'), { id: 'first', createdAt: Date.now() - 3_600_000 })
+    await items.update('first', bodyOf('FIRST, NOW'))
+    const user = userEvent.setup()
+    render(<App />)
+    await openFirstVersion(user)
+    await user.click(await screen.findByText('Restore this whole version'))
+
+    await waitFor(async () => expect(textOf((await items.get('first'))!.body)).toBe('FIRST, OLD'))
+    await waitFor(async () => expect(await db.revisions.where('itemId').equals('first').count()).toBe(3))
+    const kept = await db.revisions.where('itemId').equals('first').sortBy('createdAt')
+    expect(kept.map((one) => textOf(one.body))).toEqual(['FIRST, OLD', 'FIRST, NOW', 'FIRST, OLD'])
+    expect(kept[2].createdAt).toBeGreaterThan(kept[1].createdAt)
+  })
+
+  // Its versions are from before the lock, in the clear: put back, the text was in the locked note's history again.
+  it('restores nothing into a note locked on another device while History was open', async () => {
+    await items.create('note', bodyOf('FIRST, OLD'), { id: 'first', createdAt: Date.now() - 3_600_000 })
+    await items.update('first', bodyOf('FIRST, NOW'))
+    const user = userEvent.setup()
+    render(<App />)
+    await openFirstVersion(user)
+    const restore = await screen.findByText('Restore this whole version')
+    const before = await db.revisions.where('itemId').equals('first').count()
+    await db.items.update('first', { vault: { salt: 'A'.repeat(22), sealed: 'B'.repeat(40) }, body: { type: 'doc', content: [] }, version: 3 })
+    await user.click(restore)
+
+    expect(await screen.findByText('This note was locked on another device. Open it from the vault to change it.')).toBeTruthy()
+    expect((await items.get('first'))!.body).toEqual({ type: 'doc', content: [] })
+    expect(await db.revisions.where('itemId').equals('first').count()).toBe(before)
+  })
 })

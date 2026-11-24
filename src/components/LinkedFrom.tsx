@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Item } from '../db/db'
 import { linksTo } from '../lib/links'
-import { titleOf } from '../lib/text'
+import { nameOf } from '../lib/fountain'
 
 /** A pointer, not an index: a few, and the rest on request. */
 const SHOWN = 5
@@ -22,7 +22,7 @@ export function LinkedFrom({ id, items, onOpen }: { id: string; items: Item[]; o
               onClick={() => onOpen(item.id)}
               className="nib-tap cursor-pointer py-0.5 text-left text-[13px] text-muted hover:text-ink pointer-coarse:py-1.5"
             >
-              {titleOf(item.body)}
+              {nameOf(item)}
             </button>
           </li>
         ))}

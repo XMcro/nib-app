@@ -1,4 +1,5 @@
 import type { Call } from './answer'
+import { isBase64 } from './base64'
 import { handleFiles, sendsFile, type FileStore } from './files'
 import { handleInbox } from './inbox'
 import { json, MAX_RECEIPT, networksOf, parseJson, readBytes, sha256 } from './http'
@@ -20,6 +21,7 @@ import { FILE_HASH_HEADER, KEY_SHAPE, LIBRARY_ID_SHAPE, MAX_BODY, MAX_RECORDS, t
  *   POST   /v1/expire       { keys }     let go of versions past the history kept
  *   DELETE /v1/library                   delete everything on the server
  *   POST   /v1/key          { key }      the public key signed requests are checked against
+ *                                        (POST /v1/library takes it too, as `key`, signed the same way)
  *   POST   /v1/signed-only  { on }       signed requests only, or not
  *   …      /v1/files, /v1/files/<key>    its files (worker/files)
  *   …      /v1/inbox, /v1/inbox/taken    its inbox, from a device's side (worker/inbox)
@@ -60,12 +62,6 @@ const TOO_MANY_BAD = 'Too many pushes that weren’t signed for their library ha
 
 /** A record's name: an HMAC-SHA256, in base64url (src/sync/crypto.ts `recordKey`). */
 const KEY = new RegExp(`^${KEY_SHAPE}$`)
-/**
- * A sealed payload: standard base64, as every Nib has sent it (`seal`), so its
- * length is the bytes it takes, and nothing wider gets in to be counted short.
- */
-const PAYLOAD = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
-
 function validRecords(value: unknown): value is Wire[] {
   return (
     Array.isArray(value) &&
@@ -79,7 +75,8 @@ function validRecords(value: unknown): value is Wire[] {
         (record.b === undefined || Number.isInteger(record.b)) &&
         (record.d === undefined || record.d === 1) &&
         // A delete may come without its seal: a Nib from before sealed deletes.
-        (record.p === undefined ? record.d === 1 : typeof record.p === 'string' && PAYLOAD.test(record.p)),
+        // A sealed payload is standard base64, as every Nib has sent it (`seal`): its length is the bytes it takes, and nothing wider gets in to be counted short.
+        (record.p === undefined ? record.d === 1 : typeof record.p === 'string' && isBase64(record.p)),
     )
   )
 }
@@ -122,8 +119,8 @@ export async function handleSync(request: Request, deps: Deps): Promise<Response
     const asker = await who()
     return library.reach((stub) => ask(stub, asker))
   }
-  const refused = async (): Promise<Response | undefined> => {
-    const known = await asked((stub, asker) => stub.authorise(asker))
+  const refused = async (needPlus = true): Promise<Response | undefined> => {
+    const known = await asked((stub, asker) => stub.authorise(asker, needPlus))
     // A body not yet read is left unread, not cancelled: cancelling it can
     // lose this answer on its way out, and the sender sees a dropped connection.
     return known.status === 200 ? undefined : reply(known)
@@ -146,21 +143,30 @@ export async function handleSync(request: Request, deps: Deps): Promise<Response
     // the last place.
     const subscription = await sha256(claims.originalTransactionId)
     const subscriber = deps.subscriber(subscription)
-    const claimed = await subscriber.claimLibrary(libraryId, claims.purchasedAt)
+    const claimed = await subscriber.claimLibrary(libraryId, claims.purchasedAt, claims.expiresAt, creating)
     if (claimed.status !== 200) return reply(claimed)
-    const result = creating ? await library.create(await who(), claims.expiresAt, subscription) : await asked((stub, asker) => stub.entitle(asker, claims.expiresAt, subscription))
+    const result = creating ? await library.create(await who(), claims.expiresAt, subscription) : await asked((stub, asker) => stub.entitle(asker, claims.expiresAt, subscription, libraryId))
     // Only a place it took, and only as it found it: another request may have counted on it since (worker/subscriber).
     const { added, claim } = claimed.body as { added: boolean; claim: number }
     if (result.status !== 200 && added) await subscriber.releaseLibrary(libraryId, claim)
+    // The key signed requests are checked against, given with a new library and proved as at /v1/key. Left for the
+    // device's next request, the library had none till then, and whoever had seen this one's code could put their
+    // own on it first (the red-team review of 2026-11-17). One that isn't proved is as none given: /v1/key still takes it.
+    if (creating && result.status === 200 && typeof body.key === 'string' && PUBLIC_KEY.test(body.key)) {
+      const key = body.key
+      const { message, time, signature } = await proof()
+      if (inSignedWindow(time, Date.now()) && (await verifySignature(key, signature, message))) await asked((stub, asker) => stub.enroll(asker, key))
+    }
     return reply(result)
   }
-  if (path === '/v1/files' || path.startsWith('/v1/files/')) return handleFiles(request, { store: deps.files, asked, reach: library.reach, waitUntil: deps.waitUntil })
+  if (path === '/v1/files' || path.startsWith('/v1/files/')) return handleFiles(request, { store: deps.files, asked, reach: library.reach, body: bytes, waitUntil: deps.waitUntil })
   if (path === '/v1/inbox' || path === '/v1/inbox/taken') return handleInbox(request, { asked, body: bytes })
   if (path === '/v1/status' && request.method === 'GET') return reply(await asked((stub, asker) => stub.status(asker)))
   if (path === '/v1/changes' && request.method === 'GET') {
     const since = Number(url.searchParams.get('since') ?? 0)
     if (!Number.isInteger(since) || since < 0) return json(request, 400, { error: 'Bad cursor.' })
-    return reply(await asked((stub, asker) => stub.changes(asker, since)))
+    // `names=1`: from a Nib that says which files its documents use (worker/library `namedFiles`).
+    return reply(await asked((stub, asker) => stub.changes(asker, since, url.searchParams.get('names') === '1')))
   }
   if (path === '/v1/changes' && request.method === 'POST') {
     // The code first, then the body: a stranger's push is never read. A
@@ -190,7 +196,8 @@ export async function handleSync(request: Request, deps: Deps): Promise<Response
     return reply(await asked((stub, asker) => stub.push(asker, records)))
   }
   if (path === '/v1/expire' && request.method === 'POST') {
-    const refusal = await refused()
+    // Without Plus too, as the library takes it (worker/library `expire`): refused here first, a lapsed one never was asked.
+    const refusal = await refused(false)
     if (refusal) return refusal
     // Keys alone: a thousand of them is under 64 KB.
     const keys = parseJson(await bytes())?.keys
@@ -218,9 +225,12 @@ export async function handleSync(request: Request, deps: Deps): Promise<Response
   if (path === '/v1/library' && request.method === 'DELETE') {
     const wiped = await asked((stub, asker) => stub.wipe(asker))
     if (wiped.status !== 200) return reply(wiped)
-    // Its place goes back to the subscription that paid for it.
-    const { subscription } = wiped.body as { subscription: string | null }
-    if (subscription) await deps.subscriber(subscription).releaseLibrary(libraryId)
+    // Its place goes back to every subscription that paid for it, not only the one that sent its receipt last.
+    const { subscriptions } = wiped.body as { subscriptions: string[] }
+    // The library is gone whether or not each can be told: answered as a failure, a device changing its code took the
+    // old library for still there (src/sync/changeLibrary). One not told lets go of it when the App Store next says a
+    // word of it (worker/notifications).
+    await Promise.all(subscriptions.map((subscription) => deps.subscriber(subscription).releaseLibrary(libraryId).catch((error: Error) => console.warn('Nib: a deleted library’s subscription wasn’t told', error.name))))
     return json(request, 200, { wiped: true })
   }
   return json(request, 404, { error: 'Not found.' })

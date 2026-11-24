@@ -10,11 +10,14 @@ import { coveredNow, coverOpenVault } from './lock'
 import { startMirror } from './mirror'
 import { NOTE_DELETED, NOTE_IN_TRASH } from './notices'
 import { nativeApp, touchApp } from './platform'
-import { reminderPlugin } from './reminders'
+import { followedUp, reminderPlugin } from './reminders'
+import { linkFor } from './invitations'
 import type { OpenDocument } from './useOpenDocument'
+import { SPRINTS_PLUS } from './sprint'
+import { WIDGETS_PLUS } from './widgets'
 
 /** What runs from launch and draws nothing: nib:// links and reminder taps, the inbox, the file copy, the keyboard, the vault's cover. */
-export function useLaunchServices({ session, libraryRead, documents, addToOpen, plus, plusKnown, changeKind, hideListOverText, open, setNotice }: {
+export function useLaunchServices({ session, libraryRead, documents, addToOpen, plus, plusKnown, changeKind, hideListOverText, open, openBook, askPlus, sprint, setNotice }: {
   session: OpenDocument
   /** The first cards are on their way to the screen. */
   libraryRead: boolean
@@ -30,14 +33,31 @@ export function useLaunchServices({ session, libraryRead, documents, addToOpen, 
   hideListOverText: () => void
   /** A document opened, the library put away. */
   open: (id: string) => void
+  /** A book's folder shown in Pages, its Manuscript a tap away: for a follow-up on a book (lib/submissions). */
+  openBook: (folder: string) => void
+  /** The Plus screen, with why. */
+  askPlus: (reason: string) => void
+  /** Sprints (lib/sprint): whether one's under way, and one started. */
+  sprint: { running: boolean; start: (minutes: number) => Promise<void> }
   setNotice: (notice: string) => void
 }) {
   const { typeInDraft } = session
 
-  /** nib://new-note and nib://new-page, from a widget or Shortcuts. */
+  /** nib:// links (lib/inbox `linkAction`), from a widget or Shortcuts: a new note or page, a document, a book, the Plus screen, a sprint. */
   async function openLink(url: string) {
     const action = linkAction(url)
     if (!action) return
+    // Plus decides these, so not before it's known: at a launch, it's a moment later.
+    if (action === 'plus' || (typeof action === 'object' && 'sprint' in action)) {
+      if (!plusKnown) return void (waiting.current = url)
+      // A widget that's with Plus: the Plus screen, unless Plus is on since.
+      if (action === 'plus') return plus ? undefined : askPlus(WIDGETS_PLUS)
+      if (!plus) return askPlus(SPRINTS_PLUS)
+      // One already under way goes on. Its countdown is in the editor's status line, so to the writing, whatever was open.
+      if (!sprint.running) await sprint.start(action.sprint)
+      return hideListOverText()
+    }
+    if (typeof action === 'object') return 'book' in action ? openBook(action.book) : openStored(action.open)
     count(action === 'new-page' ? 'page_new' : 'note_new')
     changeKind(action === 'new-page' ? 'page' : 'note')
     hideListOverText()
@@ -47,10 +67,24 @@ export function useLaunchServices({ session, libraryRead, documents, addToOpen, 
     typeInDraft()
   }
 
-  /** A reminder was tapped. Read from the database: on a launch, the lists may not have loaded yet. */
+  /** A reminder was tapped. */
   async function openReminded(id: string) {
-    // The daily reminder (lib/dailyReminder) is for no note in particular: Nib opening is enough.
-    if (id.startsWith(DAILY)) return
+    // The daily reminder (lib/dailyReminder) is for no note in particular: Nib opening is enough. Its day's invitation
+    // (lib/invitations) may name a book, or a Plus feature: that's opened.
+    if (id.startsWith(DAILY)) {
+      const link = linkFor(id.slice(DAILY.length))
+      return link ? openLink(link) : undefined
+    }
+    // A follow-up (lib/submissions): the piece it was for.
+    const piece = followedUp(id)
+    if (piece === 'gone') return setNotice('That submission was deleted.')
+    if (piece && 'book' in piece) return openBook(piece.book)
+    if (piece) id = piece.document
+    await openStored(id)
+  }
+
+  /** A document by its id, read from the database: on a launch, the lists may not have loaded yet. */
+  async function openStored(id: string) {
     const item = await items.get(id).catch(() => undefined)
     if (!item) return setNotice(NOTE_DELETED)
     if (item.deletedAt !== undefined) return setNotice(NOTE_IN_TRASH)
@@ -59,6 +93,14 @@ export function useLaunchServices({ session, libraryRead, documents, addToOpen, 
 
   const latest = useRef({ openLink, openReminded, addToOpen })
   latest.current = { openLink, openReminded, addToOpen }
+  // A link that waited for Plus to be known (`openLink`).
+  const waiting = useRef<string | null>(null)
+  useEffect(() => {
+    if (!plusKnown || waiting.current === null) return
+    const url = waiting.current
+    waiting.current = null
+    void latest.current.openLink(url)
+  }, [plusKnown])
 
   // The vault's notes kept out of the app switcher's snapshot (lib/lock).
   useEffect(() => (nativeApp ? coverOpenVault() : undefined), [])

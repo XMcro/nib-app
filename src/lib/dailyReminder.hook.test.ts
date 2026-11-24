@@ -9,15 +9,17 @@ import { act, cleanup, renderHook } from '@testing-library/react'
  */
 
 const native = vi.hoisted(() => ({ list: vi.fn(), cancel: vi.fn(), set: vi.fn() }))
-vi.mock('./reminders', () => ({ DAILY: 'daily-', remindersAvailable: true, reminderPlugin: { list: native.list, cancel: native.cancel }, setReminder: native.set }))
+vi.mock('./reminders', async (actual) => ({ ...(await actual<typeof import('./reminders')>()), DAILY: 'daily-', remindersAvailable: true, reminderPlugin: { list: native.list, cancel: native.cancel }, setReminder: native.set }))
 
-const { DAILY, dailyTimes, useDailyReminder } = await import('./dailyReminder')
+const { DAILY, DAILY_TITLE, dailyTimes: times, useDailyReminder } = await import('./dailyReminder')
+/** The pack's line each day, as the device has it waiting: with the title it was given. */
+const dailyTimes = (time: string, now: number, opened: boolean) => times(time, now, opened).map((one) => ({ ...one, title: DAILY_TITLE }))
 
 const at = (date: string, time: string) => new Date(`${date}T${time}`).getTime()
 const settled = () => act(() => vi.advanceTimersByTimeAsync(50))
 const back = () => act(() => void document.dispatchEvent(new Event('visibilitychange')))
 
-let device: { id: string; at: number }[]
+let device: { id: string; at: number; title: string }[]
 const ids = () => device.map((one) => one.id).sort()
 
 beforeEach(() => {
@@ -27,7 +29,8 @@ beforeEach(() => {
   device = []
   native.list.mockImplementation(async () => ({ reminders: device }))
   native.cancel.mockImplementation(async ({ ids }: { ids: string[] }) => void (device = device.filter((one) => !ids.includes(one.id))))
-  native.set.mockImplementation(async (id: string, when: number) => void (device = [...device.filter((one) => one.id !== id), { id, at: when }]))
+  // As the device has them, with the title each was given (NibRemindersPlugin `list`).
+  native.set.mockImplementation(async (id: string, when: number, title: string) => void (device = [...device.filter((one) => one.id !== id), { id, at: when, title }]))
 })
 afterEach(() => {
   cleanup()
@@ -90,5 +93,101 @@ describe('the daily reminder’s fortnight on the device', () => {
     await settled()
     await act(() => result.current.change(null))
     expect(device).toEqual([])
+  })
+
+  it('with invitations on and the reminder off, holds the week’s invitations; the day’s first words take today’s off', async () => {
+    const { tellInvitations } = await import('./invitations')
+    localStorage.setItem('nib-daily-reminder', JSON.stringify(null))
+    localStorage.setItem('nib-invitations', JSON.stringify(true))
+    renderHook(() => useDailyReminder(false))
+    await settled()
+    // A week, from today: 18:45 is still to come.
+    expect(ids()).toEqual(['04', '05', '06', '07', '08', '09', '10'].map((date) => `${DAILY}2026-11-${date}`))
+    expect(device.every((one) => one.title !== DAILY_TITLE && new Date(one.at).getHours() === 18 && new Date(one.at).getMinutes() === 45)).toBe(true)
+    localStorage.setItem('nib-goal-calendar', JSON.stringify({ '2026-11-04': 120 }))
+    act(() => tellInvitations({ documents: [], plus: false, inkwell: false, wrote: true }))
+    await settled()
+    expect(ids()[0]).toBe(`${DAILY}2026-11-05`)
+    expect(device).toHaveLength(6)
+  })
+
+  it('with both on, a day written on has no notification at all: not the pack’s line in the invitation’s place', async () => {
+    const { tellInvitations } = await import('./invitations')
+    tellInvitations({ documents: [], plus: false, inkwell: false, wrote: false })
+    localStorage.setItem('nib-invitations', JSON.stringify(true))
+    renderHook(() => useDailyReminder(false))
+    await settled()
+    const today = `${DAILY}2026-11-04`
+    expect(device.find((one) => one.id === today)).toMatchObject({ at: at('2026-11-04', '19:00') })
+    localStorage.setItem('nib-goal-calendar', JSON.stringify({ '2026-11-04': 120 }))
+    act(() => tellInvitations({ documents: [], plus: false, inkwell: false, wrote: true }))
+    await settled()
+    expect(ids()).not.toContain(today)
+    // The reminder alone is as it always was: the pack's, whatever was written.
+    localStorage.setItem('nib-invitations', JSON.stringify(false))
+    back()
+    await settled()
+    expect(device.find((one) => one.id === today)).toMatchObject({ at: at('2026-11-04', '19:00'), title: DAILY_TITLE })
+  })
+
+  it('rings one invitation a day: once today’s has rung, nothing that moves the slot later sets it again', async () => {
+    localStorage.setItem('nib-daily-reminder', JSON.stringify(null))
+    localStorage.setItem('nib-invitations', JSON.stringify(true))
+    const { result } = renderHook(() => useDailyReminder(false))
+    await settled()
+    const today = `${DAILY}2026-11-04`
+    expect(device.find((one) => one.id === today)?.at).toBe(at('2026-11-04', '18:45'))
+    // It rings, and the device has it no longer.
+    vi.setSystemTime(at('2026-11-04', '19:00'))
+    device = device.filter((one) => one.id !== today)
+    // The daily reminder turned on for later tonight: its time is the slot's now, and today's has had its one.
+    await act(() => result.current.change('21:30'))
+    expect(ids()).not.toContain(today)
+    expect(device.find((one) => one.id === `${DAILY}2026-11-05`)?.at).toBe(at('2026-11-05', '21:30'))
+    // Tomorrow is a day of its own.
+    vi.setSystemTime(at('2026-11-05', '08:00'))
+    back()
+    await settled()
+    expect(ids()).toContain(`${DAILY}2026-11-05`)
+  })
+
+  it('moves an invitation still to come as often as its time changes, and gives today back to the reminder when invitations go off', async () => {
+    localStorage.setItem('nib-daily-reminder', JSON.stringify(null))
+    localStorage.setItem('nib-invitations', JSON.stringify(true))
+    const { result } = renderHook(() => useDailyReminder(false))
+    await settled()
+    const today = `${DAILY}2026-11-04`
+    await act(() => result.current.change('20:00'))
+    expect(device.find((one) => one.id === today)?.at).toBe(at('2026-11-04', '20:00'))
+    await act(() => result.current.changeInvitations(false))
+    expect(device.find((one) => one.id === today)).toMatchObject({ at: at('2026-11-04', '20:00'), title: DAILY_TITLE })
+    // The reminder's own, moved after the invitation's old time has gone by, still rings today: nothing of an invitation rang.
+    vi.setSystemTime(at('2026-11-04', '20:30'))
+    device = device.filter((one) => one.id !== today)
+    await act(() => result.current.change('22:00'))
+    expect(device.find((one) => one.id === today)?.at).toBe(at('2026-11-04', '22:00'))
+  })
+
+  it('turns invitations on and off from Settings or their offer, and stays off, saying why, when notifications are off for Nib', async () => {
+    const { ReminderError } = await import('./reminders')
+    const { invitationsAsked, invitationsOn } = await import('./invitationSwitch')
+    localStorage.setItem('nib-daily-reminder', JSON.stringify(null))
+    const { result } = renderHook(() => useDailyReminder(false))
+    await settled()
+    expect(device).toEqual([])
+    await act(() => result.current.changeInvitations(true))
+    expect(result.current.invitations).toBe(true)
+    expect(invitationsAsked()).toBe(true)
+    expect(device).toHaveLength(7)
+    await act(() => result.current.changeInvitations(false))
+    expect(result.current.invitations).toBe(false)
+    expect(device).toEqual([])
+
+    native.set.mockImplementation(async () => {
+      throw new ReminderError('denied', 'Notifications are off for Nib. Turn them on in Settings, under Notifications.')
+    })
+    await act(() => expect(result.current.changeInvitations(true)).rejects.toThrow('Notifications are off'))
+    expect(result.current.invitations).toBe(false)
+    expect(invitationsOn()).toBe(false)
   })
 })

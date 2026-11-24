@@ -86,9 +86,11 @@ describe('a document from a template', () => {
 })
 
 describe('the free templates', () => {
-  it('are three, and any number with Plus', () => {
-    expect(FREE_TEMPLATES).toBe(3)
-    expect(canSaveTemplate(2, false)).toBe(true)
+  // Three until 2026-11-20, then one, for everyone: any more stay, and saving another asks for Plus.
+  it('are one, and any number with Plus', () => {
+    expect(FREE_TEMPLATES).toBe(1)
+    expect(canSaveTemplate(0, false)).toBe(true)
+    expect(canSaveTemplate(1, false)).toBe(false)
     expect(canSaveTemplate(3, false)).toBe(false)
     expect(canSaveTemplate(30, true)).toBe(true)
   })

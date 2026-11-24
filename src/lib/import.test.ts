@@ -39,6 +39,19 @@ describe('parseImport', () => {
     ])
   })
 
+  // Split wherever the text had them, a page with a "Notes" heading of its own came back as two documents,
+  // the second a note, and code with a rule in it as two pages with the code torn between them.
+  it('splits an export only where it put a heading or a rule itself', () => {
+    const page = (id: string, ...content: object[]): Item => ({ ...item('page', id), body: { type: 'doc', content } as Item['body'] })
+    const words = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
+    const headed = page('headed', words('Plan'), { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Notes' }] }, { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Pages' }] }, words('After'))
+    const coded = page('coded', words('Front matter'), { type: 'codeBlock', content: [{ type: 'text', text: 'title: x\n\n---\n\nbody' }] })
+    const incoming = parseImport(buildExport([item('note', 'a note')], [headed, coded], Date.parse('2026-08-07')), 'note')
+    expect(incoming.map(({ kind }) => kind)).toEqual(['note', 'page', 'page'])
+    expect(incoming[1].markdown).toBe('Plan\n\n## Notes\n\n## Pages\n\nAfter')
+    expect(incoming[2].markdown).toBe('Front matter\n\n```\ntitle: x\n\n---\n\nbody\n```')
+  })
+
   it('round-trips a notes-only export', () => {
     const md = buildExport([item('note', 'only one')], [], Date.parse('2026-08-07'))
     expect(parseImport(md, 'page')).toEqual([{ kind: 'note', markdown: 'only one' }])

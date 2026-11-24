@@ -5,6 +5,14 @@ import green from '../assets/icons/green.png'
 import ink from '../assets/icons/ink.png'
 import paperIcon from '../assets/icons/paper.png'
 import rose from '../assets/icons/rose.png'
+import vellumIcon from '../assets/icons/vellum.png'
+import sageIcon from '../assets/icons/sage.png'
+import lilacIcon from '../assets/icons/lilac.png'
+import emberIcon from '../assets/icons/ember.png'
+import tideIcon from '../assets/icons/tide.png'
+import merlotIcon from '../assets/icons/merlot.png'
+import nibPlusIcon from '../assets/icons/nib-plus.png'
+import inkwellIcon from '../assets/icons/inkwell.png'
 import { touchApp } from '../lib/platform'
 import { PRIVACY_URL, perMonth, TERMS_URL, type Entitlement } from '../lib/plus'
 import { usePurchase } from '../lib/usePurchase'
@@ -19,7 +27,7 @@ import { Sheet } from './Sheet'
  * glow round its rim, sky blue to violet.
  */
 
-/** What Plus gives; `fresh`, new in this release (1.10.11), marked New. */
+/** What Plus gives; `fresh`, new in this release (1.10.15), marked New. */
 const FEATURES: { title: string; line: string; icon: ReactNode; fresh?: true }[] = [
   {
     title: 'On every device',
@@ -43,6 +51,12 @@ const FEATURES: { title: string; line: string; icon: ReactNode; fresh?: true }[]
     ),
   },
   {
+    title: 'Backup to a folder',
+    line: 'Markdown, once a day, where you choose.',
+    fresh: true,
+    icon: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10v6M9.5 13.5L12 16l2.5-2.5" />,
+  },
+  {
     title: 'Word, PDF and HTML',
     line: 'Hand in a page the way it looks.',
     icon: (
@@ -53,9 +67,14 @@ const FEATURES: { title: string; line: string; icon: ReactNode; fresh?: true }[]
     ),
   },
   {
+    title: 'To your own blog',
+    line: 'A draft on WordPress, Ghost or Micro.blog.',
+    fresh: true,
+    icon: <path d="M21 3L3 10.5l7.5 3 3 7.5zM10.5 13.5L15 9" />,
+  },
+  {
     title: 'Your book, ready to send',
     line: 'A title page, manuscript format and a word goal.',
-    fresh: true,
     icon: (
       <>
         <path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z" />
@@ -66,13 +85,83 @@ const FEATURES: { title: string; line: string; icon: ReactNode; fresh?: true }[]
   {
     title: 'Find across a book',
     line: 'Replace a name in every chapter, with an Undo.',
-    fresh: true,
     icon: <path d="M15 15l5.5 5.5M16.5 10.5a6 6 0 1 1-12 0 6 6 0 0 1 12 0zM8 10.5h5" />,
+  },
+  {
+    title: 'Your chapters on cards',
+    line: 'A summary and a status on each, and progress.',
+    fresh: true,
+    icon: (
+      <>
+        <rect x="3" y="4" width="8" height="7" rx="1" />
+        <rect x="13" y="4" width="8" height="7" rx="1" />
+        <rect x="3" y="13" width="8" height="7" rx="1" />
+        <path d="M5.5 7h3M15.5 7h3M5.5 16h3M13 16.5h8" />
+      </>
+    ),
+  },
+  {
+    title: 'Your book in print',
+    line: 'Ready for Amazon KDP or IngramSpark.',
+    fresh: true,
+    icon: <path d="M12 6.5C10 5 7 4.5 3 5v13c4-.5 7 0 9 1.5 2-1.5 5-2 9-1.5V5c-4-.5-7 0-9 1.5zM12 6.5v13" />,
+  },
+  {
+    title: 'Submissions, tracked',
+    line: 'Where it went, and when to follow up.',
+    fresh: true,
+    icon: <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5zM3.5 6l8.5 6.5L20.5 6" />,
+  },
+  {
+    title: 'Your book, read to you',
+    line: 'Read aloud, or saved as audio to proofread by ear.',
+    fresh: true,
+    icon: <path d="M4 16v-4a8 8 0 0 1 16 0v4M4 16a2 2 0 0 1 2-2h1.5v6H6a2 2 0 0 1-2-2zM20 16a2 2 0 0 0-2-2h-1.5v6H18a2 2 0 0 0 2-2z" />,
+  },
+  {
+    title: 'Sounds to write to',
+    line: 'Rain, a café, a fire, typewriter keys.',
+    fresh: true,
+    icon: <path d="M11 5 6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />,
+  },
+  {
+    title: 'Widgets and Shortcuts',
+    line: 'Your goal, streak and book on the Home Screen.',
+    fresh: true,
+    icon: (
+      <>
+        <rect x="3" y="3" width="8" height="8" rx="2" />
+        <circle cx="17" cy="7" r="3.5" />
+        <rect x="3" y="13" width="18" height="8" rx="2" />
+      </>
+    ),
+  },
+  {
+    title: 'Characters and places',
+    line: 'Who and where, chapter by chapter.',
+    fresh: true,
+    icon: (
+      <>
+        <circle cx="8.5" cy="8" r="3.5" />
+        <path d="M2.5 20a6 6 0 0 1 12 0M18.5 20.5s-3.5-3.2-3.5-6a3.5 3.5 0 0 1 7 0c0 2.8-3.5 6-3.5 6z" />
+        <circle cx="18.5" cy="14.5" r="1" />
+      </>
+    ),
+  },
+  {
+    title: 'Screenplays',
+    line: 'Set out as you type; PDF and Final Draft.',
+    fresh: true,
+    icon: (
+      <>
+        <path d="M4 10h16v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
+        <path d="m4 10-.6-3.4 15.8-2.8.6 3.4zM8.4 5.9l2 2.9M13.4 5l2 2.9" />
+      </>
+    ),
   },
   {
     title: 'Side by side, and tabs',
     line: 'More than one document open, on iPad and Mac.',
-    fresh: true,
     icon: (
       <>
         <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -83,13 +172,11 @@ const FEATURES: { title: string; line: string; icon: ReactNode; fresh?: true }[]
   {
     title: 'Files with your writing',
     line: 'Attachments, and pictures at full quality.',
-    fresh: true,
     icon: <path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.1-8.1a3.3 3.3 0 0 1 4.7 4.7l-8.1 8.1a1.7 1.7 0 0 1-2.4-2.4l7.5-7.5" />,
   },
   {
     title: 'Folders your way',
     line: 'As many as you like, each with a colour and icon.',
-    fresh: true,
     icon: (
       <>
         <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
@@ -99,8 +186,7 @@ const FEATURES: { title: string; line: string; icon: ReactNode; fresh?: true }[]
   },
   {
     title: 'Templates, without limit',
-    line: 'As many as you like, past the three that are free.',
-    fresh: true,
+    line: 'As many as you like, past the one that’s free.',
     icon: (
       <>
         <rect x="7" y="3" width="13" height="15" rx="1.5" />
@@ -110,12 +196,12 @@ const FEATURES: { title: string; line: string; icon: ReactNode; fresh?: true }[]
   },
   {
     title: 'Every version, kept',
-    line: 'All your history, not just 30 days.',
+    line: 'All your history, compared with now.',
     icon: <path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4M12 7v5l3 2" />,
   },
   {
     title: 'Sprints and deadlines',
-    line: 'And a calendar of your writing days.',
+    line: 'A calendar, and your year’s stats.',
     icon: (
       <>
         <rect x="3" y="5" width="18" height="16" rx="2" />
@@ -147,12 +233,22 @@ const FEATURES: { title: string; line: string; icon: ReactNode; fresh?: true }[]
 
 const LOOKS = ['Serif and mono fonts', '8 accents', 'A theme of your own', 'Highlight colours', 'Indented paragraphs', 'Focus dimming', 'Your own toolbar', 'Saved looks']
 
-// The four Plus themes, as their tiles in Settings draw them: paper, ink, accent.
+// The fourteen Plus themes, as their tiles in Settings draw them: paper, ink, accent.
 const THEMES = [
+  { label: 'Gruvbox Dark', paper: '#282828', ink: '#ebdbb2', accent: '#d65d0e' },
+  { label: 'Green Olive', paper: '#252525', ink: '#bfdce5', accent: '#8fb02a' },
+  { label: 'Gruvbox Light', paper: '#fbf1c7', ink: '#3c3836', accent: '#af3a03' },
+  { label: 'Pastel Pink', paper: '#fbe1ea', ink: '#5c0a29', accent: '#b63a69' },
   { label: 'Purple Green', paper: '#252525', ink: '#e7e7e7', accent: '#a7ff00' },
   { label: 'Alien Pink', paper: '#0a1722', ink: '#e5e5e5', accent: '#ff5a9f' },
   { label: 'drcl', paper: '#282a36', ink: '#e8eaf6', accent: '#50fa7b' },
   { label: 'Nib Plus', paper: '#18181c', ink: '#f2f2f7', accent: '#8097fc' },
+  { label: 'Vellum', paper: '#f7f0e5', ink: '#3a2a1f', accent: '#8e2f3c' },
+  { label: 'Sage', paper: '#eff3ec', ink: '#1f3326', accent: '#2c6847' },
+  { label: 'Lilac', paper: '#f4f1f8', ink: '#2b2238', accent: '#6146b5' },
+  { label: 'Ember', paper: '#1c1714', ink: '#eee2d4', accent: '#e6a246' },
+  { label: 'Tide', paper: '#0f1c1e', ink: '#dcebea', accent: '#4cc3b5' },
+  { label: 'Merlot', paper: '#1d1416', ink: '#f1e3e4', accent: '#ee8a86' },
 ]
 
 const ICONS = [
@@ -161,6 +257,14 @@ const ICONS = [
   { label: 'Blue', src: blue },
   { label: 'Green', src: green },
   { label: 'Rose', src: rose },
+  { label: 'Vellum', src: vellumIcon },
+  { label: 'Sage', src: sageIcon },
+  { label: 'Lilac', src: lilacIcon },
+  { label: 'Ember', src: emberIcon },
+  { label: 'Tide', src: tideIcon },
+  { label: 'Merlot', src: merlotIcon },
+  { label: 'Nib Plus', src: nibPlusIcon },
+  { label: 'Inkwell', src: inkwellIcon },
 ]
 
 export function UpgradeDialog({
@@ -218,8 +322,8 @@ export function UpgradeDialog({
           <Icons night />
         ) : (
           <div>
-            <div className="text-[13px] font-semibold">Four more themes</div>
-            <div className="mt-2 grid grid-cols-4 gap-2">
+            <div className="text-[13px] font-semibold">Fourteen more themes</div>
+            <div className="mt-2 grid grid-cols-5 gap-2">
               {THEMES.map((theme) => (
                 <div key={theme.label} className="flex flex-col gap-1.5">
                   <div className="flex h-10 items-center justify-center gap-1.5 rounded-lg text-[14px] font-semibold shadow-[0_0_0_1px_rgba(255,255,255,0.12)]" style={{ background: theme.paper, color: theme.ink }}>

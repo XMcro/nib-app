@@ -780,7 +780,7 @@ export const STYLE_VOICE: Answer[] = [
     q: 'How do I proofread my own work?',
     also: ['catching typos', 'why can’t I see my own mistakes', 'proofreading tips'],
     a: 'Your brain reads what you meant, so slow it down and make the text look strange:\n\n- Print it, or change the font and size.\n- Read it aloud, or have it read to you.\n- Go a line at a time with a card under it, or read backwards, sentence by sentence.\n- Check names, numbers and headings separately; mistakes hide in what you skim.\n\nProofread last, after the final edit, and when you’re fresh.',
-    see: ['nib-read-aloud', 'style-edit-print'],
+    see: ['nib-read-aloud', 'nib-audio-book', 'style-edit-print'],
   },
   {
     id: 'style-edit-aloud',

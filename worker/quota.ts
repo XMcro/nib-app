@@ -69,20 +69,17 @@ export function quotaRequests(quota: FreeQuota, effects: { alarm(at: number): Pr
 export type QuotaRequests = ReturnType<typeof quotaRequests>
 
 /**
- * One more counted against each quota in turn. Refused by one, those before
- * it get theirs back and the refusal is returned; otherwise, a way to give
- * them all back, for something that couldn't be made after all.
+ * One more counted against each quota in turn, the narrowest first. Refused by one, the refusal is returned, and
+ * those before it keep what they counted: given back, a network's own few never ran out once a wider count was
+ * full, and every attempt after went on reaching the wider ones (the server audit of 2026-11-23). Otherwise, a way
+ * to give them all back, for something that couldn't be made after all.
  */
 export async function spendEach(quotas: [QuotaRequests, number, string][]): Promise<{ refused: Call } | { refund: () => Promise<unknown> }> {
   const spent: QuotaRequests[] = []
-  const refund = () => Promise.all(spent.map((quota) => quota.refund()))
   for (const [quota, limit, refusal] of quotas) {
     const result = await quota.spend(limit, refusal)
-    if (result.status !== 200) {
-      await refund()
-      return { refused: result }
-    }
+    if (result.status !== 200) return { refused: result }
     spent.push(quota)
   }
-  return { refund }
+  return { refund: () => Promise.all(spent.map((quota) => quota.refund())) }
 }

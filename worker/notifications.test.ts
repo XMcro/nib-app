@@ -43,7 +43,7 @@ async function world() {
   const send = async (signedPayload: string) =>
     (await handleNotification(new Request('https://nib.test/v1/app-store/notifications', { method: 'POST', body: JSON.stringify({ signedPayload }) }), deps)).status
   const reading = () => readShare(share, NOW, async () => subscriber.expiresAt()).then(() => 'served', () => 'refused')
-  return { send, library, subscriber, reading, deps }
+  return { send, library, subscriber, reading, deps, share }
 }
 
 const notification = async (type: string, key?: string, transaction: Record<string, unknown> = TRANSACTION) =>
@@ -69,6 +69,27 @@ describe('App Store Server Notifications', () => {
     expect(() => subscriber.entitle(NOW + 60 * DAY, TRANSACTION.purchaseDate)).toThrow(/refunded/)
     expect(await send(await notification(type))).toBe(200)
     expect(library.status(AUTH, NOW).entitled).toBe(false)
+  })
+
+  // Served to no one after a refund, the share still took readers' notes, and could be kept 90 days more at a time.
+  it('leave a refunded share taking no notes and no more days, though its owner can still turn notes off', async () => {
+    const { send, deps, share } = await world()
+    const owner = 'o'.repeat(64)
+    const requests = deps.share(SLUG)
+    expect((await requests.update(owner, { notes: true })).status).toBe(200)
+    expect((await requests.takesNotes([])).status).toBe(200)
+    expect((await requests.addNote('sealed-note', [])).status).toBe(201)
+    expect((await requests.update(owner, { days: 30 })).status).toBe(200)
+
+    expect(await send(await notification('REFUND'))).toBe(200)
+    expect((await requests.takesNotes([])).status).toBe(410)
+    expect((await requests.addNote('sealed-note', [])).status).toBe(410)
+    const kept = share.update(owner, {}, NOW)
+    expect(await requests.update(owner, { days: 90 })).toMatchObject({ status: 402 })
+    expect(await requests.update('x'.repeat(64), { days: 90 })).toMatchObject({ status: 403 })
+    expect(share.update(owner, {}, NOW)).toBe(kept)
+    expect((await requests.update(owner, { notes: false })).status).toBe(200)
+    expect(share.notes(owner, NOW).notes).toHaveLength(1)
   })
 
   // Apple keeps the original transaction id across renewals and purchases
@@ -178,6 +199,24 @@ describe('App Store Server Notifications', () => {
     // Paid for till TRANSACTION.expiresDate, which reached it first: only ever extends.
     expect(alarms.at(-1)).toBe(library.deletesAt(NOW))
     expect(alarms.at(-1)).toBeGreaterThan(TRANSACTION.expiresDate + 300 * DAY)
+  })
+
+  // Deleted, a library told only the subscriptions it then knew paid for it. One refunded before that, or one that
+  // couldn't be reached, went on listing its id for as long as it renewed (found checking the fix, 2026-11-23).
+  it('have a subscription let go of a library that has been deleted, and of no other', async () => {
+    const { send, subscriber, deps, library } = await world()
+    const deleted = new Library(sqlite())
+    deleted.create(AUTH, NOW, NOW)
+    deleted.wipe(AUTH, NOW)
+    // One whose place is counted and that isn't made yet (worker/sync), and each one's object in the other region: holding nothing.
+    const [beingMade, nowhere] = [new Library(sqlite()), new Library(sqlite())]
+    subscriber.claimLibrary('deleted', NOW, TRANSACTION.purchaseDate)
+    subscriber.claimLibrary('being-made', NOW, TRANSACTION.purchaseDate)
+    deps.library = (id, region) => libraryRequests(region === 'before' ? nowhere : id === 'deleted' ? deleted : id === 'being-made' ? beingMade : library, () => NOW)
+    expect(await send(await notification('DID_RENEW', undefined, { ...TRANSACTION, purchaseDate: NOW, expiresDate: NOW + 60 * DAY }))).toBe(200)
+    expect(subscriber.paidTo(NOW + 60 * DAY, NOW)).toEqual(['being-made', 'library-1'])
+    // Told of nothing, none of the three was made or changed by being asked.
+    expect([beingMade.exists(), nowhere.exists(), deleted.gone()]).toEqual([false, false, true])
   })
 
   it('leave what is paid for as it was when a renewal says less than is known', async () => {

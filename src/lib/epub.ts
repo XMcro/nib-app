@@ -2,9 +2,9 @@ import { strToU8, zipSync, type Zippable } from 'fflate'
 import type { Item } from '../db/db'
 import { endnotes, markupOf } from './documentExport'
 import { IMAGE_SRC, IMAGE_SIZE_RULES } from './image'
-import { titleOf } from './text'
 import { CALLOUT_CSS } from './callouts'
 import { CODE_CSS } from './codeLanguages'
+import { nameOf } from './fountain'
 
 /**
  * A manuscript (lib/manuscript) as an EPUB 3 e-book, for Nib Plus: each
@@ -15,8 +15,12 @@ import { CODE_CSS } from './codeLanguages'
  * mode still apply.
  */
 
+/** Without the control characters XML has no way to write: one pasted or imported into a chapter, and a strict reader refused the book. */
+// eslint-disable-next-line no-control-regex
+const sayable = (text: string) => text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '')
+
 const xml = (text: string) =>
-  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  sayable(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 const STYLE = `
 h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.4em 0 0.5em; }
@@ -77,19 +81,27 @@ export function compileEpub(title: string, chapters: Item[], lang = navigator.la
           img.remove()
           continue
         }
+        let bytes: Uint8Array
+        try {
+          bytes = Uint8Array.from(atob(src.slice(src.indexOf(',') + 1)), (char) => char.charCodeAt(0))
+        } catch {
+          // Not base64 after all, from a backup made by hand: the book goes without it, where it wasn't made at all.
+          img.remove()
+          continue
+        }
         file = `images/picture-${pictures.size + 1}.${type === 'jpeg' ? 'jpg' : type}`
         pictures.set(src, file)
         // Already compressed: stored as it is.
-        later[`OEBPS/${file}`] = [Uint8Array.from(atob(src.slice(src.indexOf(',') + 1)), (char) => char.charCodeAt(0)), { level: 0 }]
+        later[`OEBPS/${file}`] = [bytes, { level: 0 }]
       }
       img.setAttribute('src', file)
       if (!img.hasAttribute('alt')) img.setAttribute('alt', '')
     }
     const file = `chapter-${index + 1}.xhtml`
-    const named = titleOf(chapter.body) || `Chapter ${index + 1}`
+    const named = nameOf(chapter) || `Chapter ${index + 1}`
     contents.push({ file, title: named, math: body.querySelector('math') !== null })
     // As XML, so it's XHTML: every element closed, every entity one XML knows.
-    later[`OEBPS/${file}`] = strToU8(page(named, lang, [...body.childNodes].map((node) => serializer.serializeToString(node)).join('')))
+    later[`OEBPS/${file}`] = strToU8(page(named, lang, sayable([...body.childNodes].map((node) => serializer.serializeToString(node)).join(''))))
   })
 
   files['META-INF/container.xml'] = strToU8(`<?xml version="1.0" encoding="utf-8"?>

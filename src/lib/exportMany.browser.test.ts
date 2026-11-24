@@ -39,6 +39,14 @@ describe('several documents as a zip', () => {
     expect(strFromU8(files['Beta.md'])).toContain('More of Beta')
   })
 
+  it('holds a screenplay as its Fountain, named for its title', async () => {
+    const lines = ['Title: The Keeper', '', 'INT. HOUSE - DAY']
+    const script: Item = { ...note(''), kind: 'page', screenplay: true, body: { type: 'doc', content: lines.map((text) => (text ? { type: 'paragraph', content: [{ type: 'text', text }] } : { type: 'paragraph' })) } }
+    const files = await unzipped(await zipOf([script, { ...script, id: crypto.randomUUID() }], 'md', () => {}))
+    expect(Object.keys(files)).toEqual(['The Keeper.fountain', 'The Keeper 2.fountain'])
+    expect(strFromU8(files['The Keeper.fountain'])).toBe('Title: The Keeper\n\nINT. HOUSE - DAY\n')
+  })
+
   it('numbers a second of the same name, whatever its capitals, and one with no title is Untitled', async () => {
     const files = await unzipped(await zipOf([note('Draft'), note('draft'), note('Draft'), note(''), note('')], 'md', () => {}))
     expect(Object.keys(files)).toEqual(['Draft.md', 'draft 2.md', 'Draft 3.md', 'Untitled.md', 'Untitled 2.md'])

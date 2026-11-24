@@ -52,6 +52,8 @@ function read(bytes: Bytes, offset: number): Node {
   if (length & 0x80) {
     const count = length & 0x7f
     if (count > 4) throw new JwsError('certificate length out of range')
+    // Its own bytes there to read: past the end they're nothing, and a length of nothing passed every check below.
+    if (offset + 2 + count > bytes.length) throw new JwsError('truncated certificate')
     length = 0
     for (let i = 0; i < count; i++) length = length * 256 + bytes[offset + 2 + i]
     header += count
@@ -198,11 +200,15 @@ function base64(text: string): Bytes {
 }
 
 function decodeJson(part: string): Record<string, unknown> {
+  let read: unknown
   try {
-    return JSON.parse(new TextDecoder().decode(base64(part)))
+    read = JSON.parse(new TextDecoder().decode(base64(part)))
   } catch {
     return fail('malformed JWS')
   }
+  // `null`, a number or a list is JSON too, and none of them has the fields read from here on.
+  if (typeof read !== 'object' || read === null || Array.isArray(read)) return fail('malformed JWS')
+  return read as Record<string, unknown>
 }
 
 type Trust = { roots: Bytes[]; now?: number; allowXcode?: boolean }
@@ -220,6 +226,8 @@ export async function verifySigned(jws: string, { roots, now = Date.now(), allow
   const header = decodeJson(parts[0])
   const payload = decodeJson(parts[1])
   if (header.alg !== 'ES256' || !Array.isArray(header.x5c) || header.x5c.length === 0) fail('unexpected JWS header')
+  // Three at most, each of them text, before any is read: a header of thousands was a quarter of a second spent on each.
+  if (header.x5c.length > 3 || !header.x5c.every((cert) => typeof cert === 'string')) fail('unexpected certificate chain')
   const chain = (header.x5c as string[]).map((cert) => parse(base64(cert)))
   const leaf = chain[0]
 

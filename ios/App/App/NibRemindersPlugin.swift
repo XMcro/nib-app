@@ -35,6 +35,8 @@ public class NibRemindersPlugin: CAPPlugin, CAPBridgedPlugin {
     static let prefix = "nib-reminder-"
     /// One snoozed from its notification is named this plus the note's id: it waits beside the note's own.
     static let snoozePrefix = "nib-snooze-"
+    /// The daily slot's (src/lib/dailyReminder.ts): never a note's title. Its lines are chosen for Lock Nib; those set before Lock Nib was turned on are put right as it is (`retitle`).
+    static let daily = prefix + "daily-"
     /// What a note's reminder can be put off by, from its notification, without opening Nib.
     static let category = "nib-reminder"
     static let snoozeHour = "snooze-hour"
@@ -106,7 +108,9 @@ public class NibRemindersPlugin: CAPPlugin, CAPBridgedPlugin {
         let add: (Bool) -> Void = { granted in
             guard granted else { return call.reject("Notifications are off for Nib.", "denied") }
             let content = UNMutableNotificationContent()
-            content.title = Self.shown(title)
+            // The daily slot's own line (src/lib/dailyReminder.ts): the pack's, or the day's invitation, which names no book while
+            // Lock Nib is on (src/lib/invitations.ts), so it's shown as it is. A note's says nothing of the note then.
+            content.title = itemId.hasPrefix("daily-") ? (title.isEmpty ? "Nib" : title) : Self.shown(title)
             content.sound = .default
             // A note's can be snoozed; the daily reminder (src/lib/reminders.ts DAILY) is tomorrow's anyway.
             if !itemId.hasPrefix("daily-") { content.categoryIdentifier = Self.category }
@@ -145,21 +149,39 @@ public class NibRemindersPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
+    /// The daily slot's line that names nothing (src/lib/dailyReminder.ts DAILY_TITLE).
+    private static let dailyLine = "Today’s pack is waiting."
+
+    /// Whether `id` is one to hide: one of those named; or, with none named (Lock Nib turned on), every one, the daily
+    /// slot's too, which may be an invitation naming a book (src/lib/invitations.ts). Named ones are never the daily slot's.
+    private static func hides(_ id: String, _ names: [String]?) -> Bool {
+        guard let names else { return true }
+        return !id.hasPrefix(daily) && names.contains(id)
+    }
+
     /// Reschedules reminders still to come under the same names and times with
     /// a new title: those named, or with `nil`, every one of Nib's (Lock Nib
-    /// turned on). Only ever to hide a note's title, so those already shown are
+    /// turned on). Only ever to hide a title, a note's or the book's in an invitation, so those already shown are
     /// taken down: one can't be changed, and would keep the title in
     /// Notification Center.
     static func retitle(_ names: [String]?, as title: String, done: @escaping () -> Void = {}) {
         let center = UNUserNotificationCenter.current()
         center.getDeliveredNotifications { delivered in
-            let shown = delivered.map(\.request.identifier).filter { ($0.hasPrefix(prefix) || $0.hasPrefix(snoozePrefix)) && names?.contains($0) != false }
+            let shown = delivered.map(\.request.identifier).filter { ($0.hasPrefix(prefix) || $0.hasPrefix(snoozePrefix)) && hides($0, names) }
             center.removeDeliveredNotifications(withIdentifiers: shown)
         }
         center.getPendingNotificationRequests { requests in
-            for request in requests where (request.identifier.hasPrefix(prefix) || request.identifier.hasPrefix(snoozePrefix)) && names?.contains(request.identifier) != false {
+            for request in requests where (request.identifier.hasPrefix(prefix) || request.identifier.hasPrefix(snoozePrefix)) && hides(request.identifier, names) {
                 guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else { continue }
-                content.title = shown(title)
+                if request.identifier.hasPrefix(daily) {
+                    // The daily slot's own line, till the page next sets the days (src/lib/dailyReminder.ts), which it does without a book's name while Lock Nib is on.
+                    content.title = dailyLine
+                    var info = content.userInfo
+                    info["title"] = dailyLine
+                    content.userInfo = info
+                } else {
+                    content.title = shown(title)
+                }
                 center.add(UNNotificationRequest(identifier: request.identifier, content: content, trigger: request.trigger))
             }
             done()

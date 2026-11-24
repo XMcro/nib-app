@@ -1,5 +1,6 @@
 import Foundation
 import Capacitor
+import WidgetKit
 
 /// The page's side of quick capture (src/lib/inbox.ts).
 ///
@@ -8,7 +9,8 @@ import Capacitor
 /// crash between the two leaves the files in place, and the next drain, which
 /// reuses each capture's id for its note, saves nothing twice.
 ///
-/// It also passes on nib:// links (widgets, Shortcuts), which Capacitor's
+/// It leaves the widgets what they show (NibSnapshot.swift), and passes on
+/// nib:// links (widgets, Shortcuts), which Capacitor's
 /// scene proxy announces when one opens the app. A link that cold-launches
 /// Nib arrives before the page is listening, so it is held until it is heard.
 @objc(NibInboxPlugin)
@@ -19,7 +21,8 @@ public class NibInboxPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "list", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "ack", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "targets", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "plus", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "plus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "widgets", returnType: CAPPluginReturnPromise)
     ]
 
     override public func load() {
@@ -59,8 +62,22 @@ public class NibInboxPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Whether Nib Plus is on, for the share sheet to go by (NibInbox `plus`).
+    /// The widgets go by whether there's a snapshot (`widgets`).
     @objc func plus(_ call: CAPPluginCall) {
         NibInbox.plus = call.getBool("active") ?? false
+        call.resolve()
+    }
+
+    /// What the widgets show (NibSnapshot), and them shown afresh. No books
+    /// or notes while Lock Nib is on, whatever the page says, as with the
+    /// share sheet's notes.
+    @objc func widgets(_ call: CAPPluginCall) {
+        let given = call.getString("snapshot")
+        let snapshot = given.flatMap { try? JSONDecoder().decode(NibSnapshot.Snapshot.self, from: Data($0.utf8)) }
+        // One that can't be read is not "none": the last good one stays, and the page hears of it.
+        if given != nil && snapshot == nil { return call.reject("That isn’t a snapshot.") }
+        NibSnapshot.write(NibLock.shared.enabled ? snapshot?.withheld : snapshot)
+        WidgetCenter.shared.reloadAllTimelines()
         call.resolve()
     }
 

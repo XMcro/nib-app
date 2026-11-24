@@ -5,8 +5,11 @@ import * as revisions from './revisions'
 import { attachedIn, hasAttachment, keptApart } from '../lib/attachment'
 import { letGo } from '../lib/fileUse'
 import { filesIn } from '../lib/image'
+import type { Status } from '../lib/manuscript'
+import { oneLine } from '../lib/text'
 import { localDay } from '../lib/time'
 import * as vault from '../lib/vault'
+import type { Posted } from '../lib/posted'
 
 /**
  * The only module that touches the database. If records ever carry ciphertext,
@@ -135,7 +138,8 @@ export async function create(
     categories,
     deviceOnly,
     template,
-  }: { id?: string; createdAt?: number; updatedAt?: number; pinnedAt?: number; folder?: string; categories?: Category[]; deviceOnly?: boolean; template?: boolean } = {},
+    screenplay,
+  }: { id?: string; createdAt?: number; updatedAt?: number; pinnedAt?: number; folder?: string; categories?: Category[]; deviceOnly?: boolean; template?: boolean; screenplay?: boolean } = {},
 ): Promise<string> {
   const now = createdAt ?? Date.now()
   await db.items.add({
@@ -151,6 +155,8 @@ export async function create(
     ...(categories?.length ? { categories } : {}),
     ...(deviceOnly ? { deviceOnly: true as const } : {}),
     ...(template ? { template: true as const } : {}),
+    // A page's only (lib/fountain).
+    ...(screenplay && kind === 'page' ? { screenplay: true as const } : {}),
   })
   await tryRecord(id, body, { now: updatedAt ?? now })
   return id
@@ -161,9 +167,9 @@ export async function create(
  * makes them: in one transaction, so the library is read and drawn once for
  * them all rather than again for each.
  */
-export async function createMany(documents: { kind: Kind; body: JSONContent; id: string; createdAt?: number; updatedAt?: number; pinnedAt?: number; archivedAt?: number; folder?: string; categories?: Category[] }[]): Promise<void> {
+export async function createMany(documents: { kind: Kind; body: JSONContent; id: string; createdAt?: number; updatedAt?: number; pinnedAt?: number; archivedAt?: number; folder?: string; categories?: Category[]; screenplay?: boolean }[]): Promise<void> {
   const at = Date.now()
-  const rows: Item[] = documents.map(({ kind, body, id, createdAt = at, updatedAt, pinnedAt, archivedAt, folder, categories }) => ({
+  const rows: Item[] = documents.map(({ kind, body, id, createdAt = at, updatedAt, pinnedAt, archivedAt, folder, categories, screenplay }) => ({
     id,
     kind,
     body,
@@ -175,6 +181,7 @@ export async function createMany(documents: { kind: Kind; body: JSONContent; id:
     ...(archivedAt ? { archivedAt } : {}),
     ...(folder ? { folder } : {}),
     ...(categories?.length ? { categories } : {}),
+    ...(screenplay && kind === 'page' ? { screenplay: true as const } : {}),
   }))
   await db.transaction('rw', db.items, db.revisions, async () => {
     await db.items.bulkAdd(rows)
@@ -213,12 +220,24 @@ export class ChangedSince extends Error {
  * LockedElsewhere, as the lock wins (sync/engine), and the caller keeps the
  * text as a copy (`addCopy`).
  */
-export async function update(
+export async function update(id: string, body: JSONContent, how: { record?: boolean; expectedVersion?: number; wasLocked?: boolean } = {}): Promise<number> {
+  // Read, sealed, then written, and between them a sync pass or another window can lock the document, unlock it,
+  // or seal it under a new passcode. Written as it was read, the text went into a locked document in the clear,
+  // or shut one just unlocked over the other device's words. So the write looks again, and starts over if so.
+  for (;;) {
+    const version = await updateAsRead(id, body, how)
+    if (version !== null) return version
+  }
+}
+
+/** `update`, for the lock as it's read at the start: null, with nothing written, if it's another by the time of writing. */
+async function updateAsRead(
   id: string,
   body: JSONContent,
-  { record = true, expectedVersion, wasLocked }: { record?: boolean; expectedVersion?: number; wasLocked?: boolean } = {},
-): Promise<number> {
+  { record = true, expectedVersion, wasLocked }: { record?: boolean; expectedVersion?: number; wasLocked?: boolean },
+): Promise<number | null> {
   let version = 0
+  let relocked = false
   let overwritten: JSONContent | undefined
   // The same, locked: no history to keep it in, so it becomes a locked copy.
   let overwrittenSeal: Vault | undefined
@@ -234,7 +253,10 @@ export async function update(
   // let a write to a record deleted in another tab resolve as a success, and
   // the library would keep claiming "Stored on this device" while every
   // keystroke went nowhere.
-  const touched = await touch(id, (item) => {
+  const touched = await db.items.where('id').equals(id).modify((item) => {
+    relocked = item.vault?.salt !== current?.vault?.salt
+    if (relocked) return
+    item.rev = nextRev(item)
     // Someone else wrote since this editor was seeded — most often the same
     // document open in a second tab. Which text the user wants is not ours
     // to decide, but the copy about to be replaced must not simply vanish.
@@ -251,6 +273,7 @@ export async function update(
     version = item.version
   })
   if (touched === 0) throw new Error(`Nib: cannot save, item ${id} no longer exists`)
+  if (relocked) return null
 
   if (overwrittenSeal) await addCopy(current!.kind, { vault: overwrittenSeal, from: id })
   if (overwritten) {
@@ -384,6 +407,27 @@ export async function setPositions(places: { id: string; position: number }[]): 
     )
 }
 
+/** A page's summary on the corkboard (lib/manuscript), made one line, or none with null. Like a goal: `rev` moves, `version` and `updatedAt` don't. None on a locked page. */
+export async function setSummary(id: string, summary: string | null): Promise<void> {
+  await touch(id, (item) => {
+    if (!vault.isLocked(item)) item.summary = summary === null ? null : oneLine(summary)
+  })
+}
+
+/** Where the document went on the blog at `posted.site` (lib/posted), in place of what was kept for that blog. Like a goal: `rev` moves, `version` and `updatedAt` don't. */
+export async function setPosted(id: string, posted: Posted): Promise<void> {
+  await touch(id, (item) => {
+    item.posted = [...(item.posted ?? []).filter((one) => one.site !== posted.site), posted]
+  })
+}
+
+/** A chapter's status on the corkboard: a draft is none, as `null`. Like a goal: `rev` moves, `version` and `updatedAt` don't. */
+export async function setStatus(id: string, status: Status): Promise<void> {
+  await touch(id, (item) => {
+    item.status = status === 'draft' ? null : status
+  })
+}
+
 /**
  * A folder or category renamed, recoloured or removed: `change` made to every
  * document `applies` to, the trash included, so one put back is filed as
@@ -432,19 +476,19 @@ export async function duplicate(id: string): Promise<string | undefined> {
   if (!source || vault.isLocked(source)) return undefined
   // Filed where the original is, or it would leave the folder being shown. Without its expiry date or its reminder: a copy has neither until it's given one.
   // And only on this device, if the original is: a copy that synced would send its words where it was kept from.
-  return create(source.kind, source.body, { folder: source.folder ?? undefined, categories: source.categories, deviceOnly: source.deviceOnly === true })
+  return create(source.kind, source.body, { folder: source.folder ?? undefined, categories: source.categories, deviceOnly: source.deviceOnly === true, screenplay: source.screenplay === true })
 }
 
 /**
  * A copy of the document `id` kept as a template (lib/templates): its words,
- * and none of its folder, categories, reminder, expiry date or shares. Only on
+ * and a screenplay's still one, and none of its folder, categories, reminder, expiry date or shares. Only on
  * this device if the original is, as a duplicate is. Not of a locked one,
  * whose text is sealed to its own id.
  */
 export async function saveAsTemplate(id: string): Promise<string | undefined> {
   const source = await get(id)
   if (!source || vault.isLocked(source)) return undefined
-  return create(source.kind, source.body, { template: true, deviceOnly: source.deviceOnly === true })
+  return create(source.kind, source.body, { template: true, deviceOnly: source.deviceOnly === true, screenplay: source.screenplay === true })
 }
 
 /**
@@ -455,7 +499,7 @@ export async function saveAsTemplate(id: string): Promise<string | undefined> {
 export async function fromTemplate(id: string, filed: { folder?: string; categories?: Category[] } = {}): Promise<string | undefined> {
   const source = await get(id)
   if (!source || source.template !== true || vault.isLocked(source)) return undefined
-  return create(source.kind, source.body, { ...filed, deviceOnly: source.deviceOnly === true })
+  return create(source.kind, source.body, { ...filed, deviceOnly: source.deviceOnly === true, screenplay: source.screenplay === true })
 }
 
 /**
@@ -472,6 +516,8 @@ export async function lock(id: string, body: JSONContent, expectedVersion?: numb
     const touched = await touch(id, (item) => {
       item.vault = sealed
       item.body = vault.LOCKED_BODY
+      // The vault seals only the text: words about it left beside it would be read without the passcode.
+      if (typeof item.summary === 'string') item.summary = null
       item.updatedAt = Date.now()
       item.version += 1
     })
@@ -627,6 +673,8 @@ export async function sealCopies(): Promise<void> {
     if (!body) continue
     const sealed = await vault.seal(copy.id, body)
     await touch(copy.id, (item) => {
+      // Sealed already, by a run of this at the same time: once is enough, and a second would be written over what's there since.
+      if (!item.unsealed) return
       item.vault = sealed
       delete item.unsealed
       item.version += 1

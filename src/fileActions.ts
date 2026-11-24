@@ -4,9 +4,15 @@ import type { Item, Kind } from './db/db'
 import * as items from './db/items'
 import { CSV_ACCEPT, insertTable, pickFile, rowsOf, tableAtCaret, tableFromCsv, toCsv } from './editor/tableCsv'
 import { BackupError, restoreBackup, takeBackup } from './lib/backup'
+import { BLOG_PLUS, BlogError, blogPlugin, sendPost } from './lib/blog'
 import { count } from './lib/counts'
-import { bookFilename, compileDocx, csvFilename, compileHtml, documentFilename, makeFile, standardDocx, standardHtml, toDocx, toHtml, type BookFormat, type RichFormat } from './lib/documentExport'
-import { download, SaveRefused } from './lib/download'
+import { bookFilename, compileDocx, csvFilename, compileHtml, documentFilename, fileNamed, makeFile, printScreenplay, standardDocx, standardHtml, toDocx, toHtml, type BookFormat, type RichFormat } from './lib/documentExport'
+import { isScreenplay, nameOf, SCREENPLAY_PLUS, toFountain } from './lib/fountain'
+import { toFdx } from './lib/fdx'
+import { scriptDocx, scriptHtml } from './lib/scriptExport'
+import { withoutNotes } from './editor/NoteToSelf'
+import { download, SaveRefused, share } from './lib/download'
+import { handOverFile } from './lib/exportFile'
 import { asCategories, asFolder } from './lib/folders'
 import { compileEpub } from './lib/epub'
 import { buildExport, exportFilename } from './lib/export'
@@ -18,8 +24,12 @@ import { bookOf, partPage, runningHead, titlePage, type Part } from './lib/manus
 import { readFolderSettings } from './lib/folderSettings'
 import { mathFor } from './lib/math'
 import { withOriginals } from './lib/originals'
+import { PRINT_PLUS, printBook, TRIMS, type Trim } from './lib/printBook'
+import { AUDIO_PLUS, piecesOf, record, RecordingBusy, RecordingStopped, stopRecording } from './lib/readAloud'
 import { coloursFor } from './editor/codeColours'
 import { gathered } from './lib/placed'
+import type { Notice } from './lib/notices'
+import { postedOn } from './lib/posted'
 import type { Sort } from './lib/sort'
 import { countWords } from './lib/stats'
 import { plainText, titleOf } from './lib/text'
@@ -51,9 +61,10 @@ export function fileActions({
   setImportReport,
   onRestored,
   askPassword,
+  openBlog,
 }: {
   session: OpenDocument
-  setNotice: (notice: string) => void
+  setNotice: (notice: string | Notice | null) => void
   /** Plus's features are open. */
   features: boolean
   askPlus: (reason: string) => void
@@ -65,8 +76,10 @@ export function fileActions({
   onRestored: () => void
   /** Asks the writer for the password of a file being imported that needs one (ColorNote's backup). */
   askPassword?: AskPassword
+  /** Settings at Your blog, to connect one (components/BlogPanel). */
+  openBlog?: () => void
 }) {
-  const { flush, whenSaved, guarded, currentKind, dropPending, resetToDraft, setConflict, setSaveFailed } = session
+  const { flush, whenSaved, guarded, currentKind, dropPending, dropKept, resetToDraft, setConflict, setSaveFailed } = session
 
   // Not awaited inside guarded(): handing a file over is not storage, and a
   // failed share reported as "Can't save to this device" would be a lie.
@@ -137,16 +150,46 @@ export function fileActions({
   }
 
   /**
+   * The open screenplay as Fountain, free always, as it's written (notes to
+   * self kept, as Markdown keeps them); or as Final Draft, for Nib Plus, as
+   * it prints (lib/fdx). Saved first, and a locked one only with the vault open.
+   */
+  async function exportScript(format: 'fountain' | 'fdx') {
+    if (format === 'fdx' && !features) return askPlus(SCREENPLAY_PLUS)
+    await whenSaved(async (id) => {
+      await guarded(async () => {
+        const stored = await items.get(id)
+        const item = stored && (await items.opened(stored))
+        if (!item) {
+          if (stored) setNotice(LOCKED_EXPORT)
+          return
+        }
+        const name = fileNamed(nameOf(item), format)
+        if (format === 'fdx') handOver(toFdx(withoutNotes(item.body)), name, 'application/xml;charset=utf-8')
+        else handOver(toFountain(item.body), name, 'text/plain;charset=utf-8')
+      })
+    })
+  }
+
+  /**
    * A manuscript (lib/manuscript) as one Word, PDF or EPUB file, for Nib Plus: its
    * chapters as stored once the open one is saved, locked ones as the open
    * vault lets them out. One it can't open is left out, and said so. Before
    * them, a cover with their stamps, if they wear any (components/stampCover).
    */
-  /** `standard`: in standard manuscript format (lib/manuscript Standard), as Word or PDF, with no cover. */
-  async function compileManuscript(folder: string, parts: Part[], format: BookFormat, standard = false) {
-    if (!features) return askPlus(COMPILE_PLUS)
+  /**
+   * `standard`: in standard manuscript format (lib/manuscript Standard), as Word or PDF, with no cover. `print`: a PDF
+   * ready for print on demand (lib/printBook), at that trim, with no cover: it makes its own title page.
+   */
+  /**
+   * A manuscript's chapters as stored once the open one is saved, locked ones
+   * as the open vault lets them out, and each part under its name, on a page
+   * of its own before its first chapter. None if none could be opened, and
+   * said so (`locked`). `left`, how many couldn't.
+   */
+  async function bookPages(folder: string, parts: Part[], locked: string) {
     const chapters = parts.flatMap((part) => part.chapters)
-    // As it's been given in its Manuscript (lib/manuscript bookOf), on a page of its own after the cover.
+    // As it's been given in its Manuscript (lib/manuscript bookOf).
     const { title, author } = bookOf(folder, readFolderSettings())
     await flush()
     let readable: Item[] = []
@@ -154,34 +197,43 @@ export function fileActions({
       const stored = await Promise.all(chapters.map((chapter) => items.get(chapter.id)))
       const open = await Promise.all(stored.map((item) => (item ? items.opened(item) : null)))
       readable = open.filter((item): item is Item => item !== null)
-      if (readable.length === 0 && stored.some(Boolean)) setNotice('Every page in this book is locked. Open the vault to compile it.')
+      if (readable.length === 0 && stored.some(Boolean)) setNotice(locked)
     })
-    if (readable.length === 0) return
-    // A cover that can't be drawn is left off, not the book. A standard manuscript has none.
-    const cover = standard
-      ? null
-      : await coverOf(title, gathered(readable)).catch((error: unknown) => {
-          console.warn('Nib: could not draw the cover', error)
-          return null
-        })
-    // Each part under its name, on a page of its own before its first chapter: those of its chapters that could be opened, and none of a part with none.
+    if (readable.length === 0) return null
+    // Those of a part's chapters that could be opened, and none of a part with none.
     const opened = new Map(readable.map((chapter) => [chapter.id, chapter]))
     const pages = parts.flatMap((part) => {
       const own = part.chapters.flatMap((chapter) => opened.get(chapter.id) ?? [])
       return part.name !== null && own.length > 0 ? [partPage(part.name), ...own] : own
     })
+    return { title, author, readable, pages, left: chapters.length - readable.length }
+  }
+
+  async function compileManuscript(folder: string, parts: Part[], format: BookFormat, standard = false, print?: { trim: Trim; dropCaps: boolean }) {
+    if (!features) return askPlus(print ? PRINT_PLUS : COMPILE_PLUS)
+    const found = await bookPages(folder, parts, 'Every page in this book is locked. Open the vault to compile it.')
+    if (!found) return
+    const { title, author, readable, pages, left } = found
+    // A cover that can't be drawn is left off, not the book. A standard manuscript has none, nor a book for print: its cover is a file of its own.
+    const cover = standard || print
+      ? null
+      : await coverOf(title, gathered(readable)).catch((error: unknown) => {
+          console.warn('Nib: could not draw the cover', error)
+          return null
+        })
     // Each picture as its original, where this device has it (lib/originals).
     const book: Item[] = []
-    // A standard manuscript makes its own first page (lib/documentExport standardDocx).
-    for (const page of standard ? pages : [...(cover ? [cover] : []), titlePage(title, author), ...pages]) book.push({ ...page, body: await withOriginals(page.body) })
+    // A standard manuscript makes its own first page (lib/documentExport standardDocx), and a book for print its title page.
+    for (const page of standard || print ? pages : [...(cover ? [cover] : []), titlePage(title, author), ...pages]) book.push({ ...page, body: await withOriginals(page.body) })
     // Its formulas are drawn in a PDF and an e-book; Word has their LaTeX.
     if (format !== 'docx') await mathFor(book.map((chapter) => chapter.body))
     await coloursFor(book.map((chapter) => chapter.body))
     const name = bookFilename(title, format)
     // Its length as the Manuscript gives it: the chapters' words, those that could be opened.
     const manuscript = { title, author, words: readable.reduce((sum, chapter) => sum + countWords(plainText(chapter.body)), 0) }
-    const made =
-      format === 'epub'
+    const made = print
+      ? printBook({ title, author, chapters: book, ...print, year: new Date().getFullYear(), lang: navigator.language || 'en' }, bookFilename(`${title} (${TRIMS[print.trim].name})`, 'pdf'))
+      : format === 'epub'
         ? Promise.resolve().then(() => download(compileEpub(title, book, undefined, author), name))
         : standard
           ? makeFile(format, name, { docx: () => standardDocx(manuscript, book), html: () => standardHtml(manuscript, book), header: runningHead(manuscript) })
@@ -194,8 +246,59 @@ export function fileActions({
         return false
       },
     )
-    const left = chapters.length - readable.length
     if (handed && left > 0) setNotice(left === 1 ? 'One locked page couldn’t be opened, so it isn’t in the book.' : `${left} locked pages couldn’t be opened, so they aren’t in the book.`)
+  }
+
+  /**
+   * `bodies` as audio named `name` (lib/readAloud record), handed over as an
+   * export is. While it's made, a notice says how far it has got, with Stop;
+   * nothing is kept of one stopped. Whether it was handed over.
+   */
+  async function makeAudio(name: string, bodies: Item['body'][]): Promise<boolean> {
+    const pieces = piecesOf(bodies)
+    if (!pieces.some((piece) => 'say' in piece)) {
+      setNotice('There’s nothing here to read.')
+      return false
+    }
+    const stop = { label: 'Stop', run: () => void stopRecording() }
+    setNotice({ text: 'Making the audio…', action: stop })
+    try {
+      const path = await record(name, pieces, (done) => setNotice({ text: `Making the audio… ${Math.floor(done * 100)}%`, action: stop }))
+      setNotice(null)
+      await handOverFile(path, share)
+      return true
+    } catch (error) {
+      if (error instanceof RecordingStopped) setNotice('Stopped. No audio was saved.')
+      else if (error instanceof RecordingBusy) setNotice('Nib is already making audio. Stop that first, or wait for it.')
+      else {
+        console.warn('Nib: could not make the audio', error)
+        setNotice(notHanded(error, 'Couldn’t make the audio. Your writing is safe here.'))
+      }
+      return false
+    }
+  }
+
+  /** The open note or page as audio, for Nib Plus, in the app: saved first, and a locked one only with the vault open. */
+  async function saveAsAudio() {
+    if (!features) return askPlus(AUDIO_PLUS)
+    await whenSaved(async (id) => {
+      let item: Item | undefined | null
+      await guarded(async () => {
+        const stored = await items.get(id)
+        item = stored && (await items.opened(stored))
+        if (stored && !item) setNotice('This is locked. Open the vault to save it as audio.')
+      })
+      if (item) await makeAudio(fileNamed(nameOf(item), 'm4a'), [item.body])
+    })
+  }
+
+  /** A manuscript as one piece of audio, for Nib Plus, in the app: its title page, then each part's name and its chapters, as compiling has them. */
+  async function listenToManuscript(folder: string, parts: Part[]) {
+    if (!features) return askPlus(AUDIO_PLUS)
+    const book = await bookPages(folder, parts, 'Every page in this book is locked. Open the vault to make its audio.')
+    if (!book) return
+    const handed = await makeAudio(fileNamed(book.title, 'm4a'), [titlePage(book.title, book.author).body, ...book.pages.map((page) => page.body)])
+    if (handed && book.left > 0) setNotice(book.left === 1 ? 'One locked page couldn’t be opened, so it isn’t in the audio.' : `${book.left} locked pages couldn’t be opened, so they aren’t in the audio.`)
   }
 
   /** Word, PDF or HTML, for Nib Plus. The system prints the PDF (ios/App/App/NibPdfPlugin.swift). */
@@ -211,6 +314,17 @@ export function fileActions({
       if (!item) return
       count(format === 'docx' ? 'export_word' : format === 'pdf' ? 'export_pdf' : 'export_html')
       const written = { ...item, body: await withOriginals(item.body) }
+      // A screenplay laid out as one: its PDF in industry format (lib/scriptPages), Word and HTML a paragraph an element (lib/scriptExport); named for its title.
+      if (isScreenplay(written)) {
+        const name = fileNamed(nameOf(written), format)
+        const body = withoutNotes(written.body)
+        const made = format === 'pdf' ? printScreenplay(body, name) : makeFile(format, name, { docx: () => scriptDocx(body, nameOf(written)), html: () => scriptHtml(body, nameOf(written)) })
+        await made.catch((error: unknown) => {
+          console.warn('Nib: could not export', error)
+          setNotice(notHanded(error, 'Couldn’t export that. Your writing is safe here.'))
+        })
+        return
+      }
       if (format !== 'docx') await mathFor([written.body])
       await coloursFor([written.body])
       const made = makeFile(format, documentFilename(written, format), { docx: () => toDocx(written), html: () => toHtml(written) })
@@ -219,6 +333,42 @@ export function fileActions({
         console.warn('Nib: could not export', error)
         setNotice(notHanded(error, 'Couldn’t export that. Your writing is safe here.'))
       })
+    })
+  }
+
+  /**
+   * The open document on the writer's blog (lib/blog) as a draft, or the post
+   * it made there before changed to match: Nib Plus, in the app. Saved first,
+   * and sent as it's exported, its pictures at their best; a locked one only
+   * with the vault open. Where it went is kept with it (lib/posted).
+   */
+  async function sendToBlog() {
+    if (!features) return askPlus(BLOG_PLUS)
+    const { site } = await blogPlugin.blog().catch(() => ({ site: undefined }))
+    if (!site) return openBlog?.()
+    const host = new URL(site).host
+    await whenSaved(async (id) => {
+      let item: Item | undefined | null
+      await guarded(async () => {
+        const stored = await items.get(id)
+        item = stored && (await items.opened(stored))
+        if (stored && !item) setNotice('This is locked. Open the vault to send it.')
+      })
+      if (!item) return
+      setNotice(`Sending to ${host}…`)
+      const written = { ...item, body: await withOriginals(item.body) }
+      await mathFor([written.body])
+      await coloursFor([written.body])
+      let sent: Awaited<ReturnType<typeof sendPost>>
+      try {
+        sent = await sendPost(written, postedOn(item, site))
+      } catch (error) {
+        console.warn('Nib: could not send to the blog', error)
+        return setNotice(error instanceof BlogError ? error.message : 'Couldn’t send that to your blog. Your writing is safe here.')
+      }
+      const { updated, ...where } = sent
+      await guarded(() => items.setPosted(id, { site, ...where }))
+      setNotice({ text: updated ? `Updated your post on ${host}.` : `Sent to ${host} as a draft.`, action: { label: 'Open it', run: () => void window.open(where.edit, '_blank') } })
     })
   }
 
@@ -301,10 +451,13 @@ export function fileActions({
           archivedAt: document.archived ? Date.now() : undefined,
           folder: features ? (asFolder(document.folder) ?? undefined) : undefined,
           categories: features ? asCategories(document.tags?.map(colored)) : undefined,
+          // A screenplay is laid out as one with Nib Plus, as New screenplay is; without it, its lines come in as a page.
+          screenplay: features && document.screenplay === true,
         })),
       )
       // Said once for each place they came from, in its own words for them.
       if (!features) for (const what of new Set(imported.filter((document) => document.folder || document.tags?.length).map((document) => document.filing ?? 'Folders and tags'))) skipped.push(`${what}, which come in with Nib Plus`)
+      if (!features && imported.some((document) => document.screenplay)) skipped.push('The screenplay layout, which comes with Nib Plus: the script’s lines are in as a page')
       if (skipped.length) setImportReport({ imported: imported.map((document) => document.kind), skipped })
       else setNotice(`Imported ${importedWords(imported.map((document) => document.kind))}.`)
     })
@@ -326,6 +479,7 @@ export function fileActions({
     await flush()
     try {
       await restoreBackup(await file.text())
+      dropKept()
       onRestored()
       setConflict(null)
       resetToDraft()
@@ -344,5 +498,5 @@ export function fileActions({
     }
   }
 
-  return { exportAll, exportCurrent, exportTableCsv, insertTableCsv, compileManuscript, exportCurrentAs, exportMany, importFiles, backupAll, restoreFromFile }
+  return { exportAll, exportCurrent, exportScript, exportTableCsv, insertTableCsv, compileManuscript, exportCurrentAs, sendToBlog, saveAsAudio, listenToManuscript, exportMany, importFiles, backupAll, restoreFromFile }
 }

@@ -6,7 +6,9 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 
 vi.mock('./platform', async (importOriginal) => ({ ...(await importOriginal<typeof import('./platform')>()), nativeApp: true, touchApp: true }))
 vi.mock('./cloud', () => ({ keepInCloud: (looked: () => void) => (looked(), () => {}) }))
-vi.mock('./feedback', () => ({ askDue: async () => null, rememberOffered: async () => {} }))
+// What's due to be asked once (lib/feedback): nothing, unless a test says.
+const asked = vi.hoisted(() => ({ due: null as 'card' | null }))
+vi.mock('./feedback', () => ({ askDue: async () => asked.due, rememberOffered: async () => {} }))
 vi.mock('./dailyReminder', () => ({ dailyAsked: () => true }))
 
 const { useUnprompted } = await import('./useUnprompted')
@@ -30,6 +32,7 @@ function caretInWriting() {
 
 beforeEach(() => void vi.useFakeTimers())
 afterEach(() => {
+  asked.due = null
   cleanup()
   document.body.replaceChildren()
   vi.useRealTimers()
@@ -136,5 +139,16 @@ describe('coming back to the front with the caret in the writing', () => {
     pass(1400)
     expect(document.activeElement).toBe(writing)
     expect(result.current.coinsOpen).toBe(false)
+  })
+})
+
+describe('what Nib asks once', () => {
+  it('offers the year’s card, after the day’s coins and pack, and remembers the year it did', async () => {
+    localStorage.clear()
+    asked.due = 'card'
+    const { result } = renderHook((props: Props) => useUnprompted(props), { initialProps: day({ coinsDue: false, packWaiting: false }) })
+    await act(async () => void vi.advanceTimersByTime(5 * 700))
+    expect(result.current.asking).toBe('card')
+    expect(localStorage.getItem('nib-goal-card')).toBe(JSON.stringify(String(new Date().getFullYear())))
   })
 })

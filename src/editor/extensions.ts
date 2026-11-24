@@ -23,7 +23,7 @@ import {
   TaskItem,
   TaskList,
 } from '@tiptap/extension-list'
-import { TableKit } from '@tiptap/extension-table'
+import { TableCell, TableHeader, TableKit } from '@tiptap/extension-table'
 import { UndoRedo, Placeholder } from '@tiptap/extensions'
 import { Attachment } from './Attachment'
 import { Callout } from './Callout'
@@ -37,8 +37,9 @@ import { GfmTaskList } from './GfmTaskList'
 import { Underline } from './Underline'
 import { fitSchema } from './fitSchema'
 import { asAlignment } from '../lib/alignment'
-import { filterBodyImages } from '../lib/image'
+import { asSpan, filterBodyImages } from '../lib/image'
 import { asBlock } from '../lib/links'
+import { Screenplay } from './Screenplay'
 
 /**
  * Link, with the two things imported markup could otherwise decide for itself.
@@ -151,6 +152,15 @@ const ChecklistItem = TaskItem.extend({
  * there read it. Lists and quotations follow their first line (index.css): a
  * dir="auto" on them as well wouldn't see text inside one of its own.
  */
+/** A cell that reads its spans as the body filter does (asSpan): a pasted table sets them too, and reaches no filter. */
+const withSpans = (cell: typeof TableCell) =>
+  cell.extend({
+    addAttributes() {
+      const span = (name: string) => ({ default: 1, parseHTML: (element: HTMLElement) => asSpan(Number(element.getAttribute(name))) })
+      return { ...this.parent?.(), colspan: span('colspan'), rowspan: span('rowspan') }
+    },
+  })
+
 const OWN_DIRECTION = { HTMLAttributes: { dir: 'auto' } }
 
 /** A paragraph's or heading's alignment (lib/alignment), kept off a body that has none. Stored JSON isn't trusted, and this goes into a style. */
@@ -273,18 +283,26 @@ export function nibExtensions(page: boolean) {
     // Headings are what makes a Page a Page. Tables are for pages too: a
     // note is a thought caught in a line or two. Columns are as wide as their
     // text, with no drag handles, which a finger could not find anyway.
-    ...(page ? [Heading.configure({ levels: [1, 2, 3, 4, 5, 6], ...OWN_DIRECTION }), TableKit.configure({ table: { resizable: false } })] : []),
+    ...(page ? [Heading.configure({ levels: [1, 2, 3, 4, 5, 6], ...OWN_DIRECTION }), TableKit.configure({ table: { resizable: false }, tableCell: false, tableHeader: false }), withSpans(TableCell), withSpans(TableHeader)] : []),
     Placeholder.configure({ placeholder: 'Start writing…' }),
   ]
 }
 
-/** The text's own look: a page's, or a note's, as the editor shows it and the document beside it does. */
-export const textClass = (page: boolean) =>
-  page ? 'nib-editor nib-editor-page text-[17px] leading-[1.65]' : 'nib-editor font-mono text-[15px] leading-[1.7] pointer-coarse:text-[16px]'
+/** The text's own look: a page's, a screenplay's, or a note's, as the editor shows it and the document beside it does. */
+export const textClass = (page: boolean, screenplay = false) =>
+  screenplay
+    ? 'nib-editor nib-editor-page nib-screenplay text-[16px] leading-[1.5]'
+    : page
+      ? 'nib-editor nib-editor-page text-[17px] leading-[1.65]'
+      : 'nib-editor font-mono text-[15px] leading-[1.7] pointer-coarse:text-[16px]'
 
-/** What every editor on a document is made from. */
-export const nibEditor = (page: boolean) => ({
-  extensions: nibExtensions(page),
+/** In a screenplay, only the shortcuts for bold, italic and the like: #, >, - and = start Fountain's lines, not headings, quotes and lists. */
+const SCREENPLAY_RULES = ['bold', 'italic', 'strike', 'underline', 'highlight', 'code']
+
+/** What every editor on a document is made from. A screenplay's (lib/fountain) reads its lines as Fountain (./Screenplay). */
+export const nibEditor = (page: boolean, screenplay = false) => ({
+  extensions: screenplay ? [...nibExtensions(page), Screenplay] : nibExtensions(page),
+  ...(screenplay && { enableInputRules: SCREENPLAY_RULES }),
   // Its rules are in index.css: a <style> added now would be refused (lib/csp).
   injectCSS: false,
 })

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { GRACE_MS } from './paid'
 import type { Refused } from './answer'
-import { MAX_NOTES, NOTES_PER_HOUR, NOTES_PER_MINUTE, readShare, Share } from './share'
+import { expireShare, MAX_NOTES, NOTES_PER_HOUR, NOTES_PER_MINUTE, readShare, REVEALED_KEPT_MS, Share, shareRequests } from './share'
 import { LIBRARY_IDLE_MS, MAX_LIBRARIES, MAX_LIVE_SHARES, Subscriber } from './subscriber'
 import { MAX_NOTE_LENGTH, READ_ONCE_GONE } from './wire.mjs'
 import { sqlite } from './testing'
@@ -301,7 +301,120 @@ describe('a share to be read once', () => {
     expect(status(() => share.reveal(NOW, 'b'.repeat(64)))).toBe(404)
     expect(share.read(NOW)).toMatchObject({ once: true })
     expect(share.reveal(NOW, 'a'.repeat(64))).toMatchObject({ doc: 'sealed-doc' })
-    expect(status(() => share.reveal(NOW, 'a'.repeat(64)))).toBe(410)
+  })
+
+  // Deleted as it was handed over, one whose answer was lost on the way was gone unread, and its writer told it
+  // had been read (the server audit of 2026-11-23).
+  it('is handed again to the same token for ten minutes, to no other, and then its text is deleted', () => {
+    expect(REVEALED_KEPT_MS).toBe(10 * 60_000)
+    const sql = sqlite()
+    const share = new Share(sql)
+    const chunks = () => sql.all('SELECT COUNT(*) AS n FROM chunks')[0].n
+    share.create({ slug: 'slug', ownerHash: OWNER, subscriber: SUBSCRIBER, days: 30, entitledUntil: NOW + 30 * DAY, doc: 'sealed-doc', once: true, reveal: 'a'.repeat(64) }, NOW)
+    expect(share.nextAlarm()).toBe(NOW + 30 * DAY)
+    expect(share.reveal(NOW, 'a'.repeat(64))).toMatchObject({ doc: 'sealed-doc' })
+    expect(share.notes(OWNER, NOW).opened).toBe(true)
+    expect(share.nextAlarm()).toBe(NOW + REVEALED_KEPT_MS)
+    // The same reader, its answer lost: again, and its page told it's still there to open.
+    expect(share.reveal(NOW + REVEALED_KEPT_MS - 1, 'a'.repeat(64))).toMatchObject({ doc: 'sealed-doc' })
+    expect(share.read(NOW + REVEALED_KEPT_MS - 1)).toMatchObject({ once: true })
+    // Anyone else is answered as before it was read: nothing here for that token. Said to be gone, the reader's
+    // page never tried the token of a draft made by an older Nib, and called a mistyped password "already read"
+    // (found checking the fix, 2026-11-23).
+    expect(status(() => share.reveal(NOW + 1))).toBe(404)
+    expect(status(() => share.reveal(NOW + 1, 'b'.repeat(64)))).toBe(404)
+    expect(chunks()).toBe(1)
+    // Ten minutes on, by its alarm: the text is gone, and it's there till its expiry for the owner and the notes.
+    share.forgetRevealed(NOW + REVEALED_KEPT_MS)
+    expect(chunks()).toBe(0)
+    expect(share.nextAlarm()).toBe(NOW + 30 * DAY)
+    expect(status(() => share.reveal(NOW + REVEALED_KEPT_MS, 'a'.repeat(64)))).toBe(410)
+    expect(status(() => share.reveal(NOW + REVEALED_KEPT_MS, 'b'.repeat(64)))).toBe(410)
+    expect(status(() => share.read(NOW + REVEALED_KEPT_MS))).toBe(410)
+  })
+
+  // Every reader's request comes by `read` first (`readShare`), which refused it before `reveal` was reached: its
+  // alarm lost, the text stayed till the share expired (found checking the fix, 2026-11-23).
+  it('is deleted as a reader next asks for it by any route, if its alarm never came', async () => {
+    for (const reveal of [false, true]) {
+      const sql = sqlite()
+      const share = new Share(sql)
+      share.create({ slug: 'slug', ownerHash: OWNER, subscriber: SUBSCRIBER, days: 30, entitledUntil: NOW + 30 * DAY, doc: 'sealed-doc', once: true, reveal: 'a'.repeat(64) }, NOW)
+      share.reveal(NOW, 'a'.repeat(64))
+      await expect(readShare(share, NOW + REVEALED_KEPT_MS, async () => null, { reveal, tokenHash: 'a'.repeat(64) })).rejects.toMatchObject({ status: 410 })
+      expect(sql.all('SELECT COUNT(*) AS n FROM chunks')[0].n).toBe(0)
+      expect(share.revealedDue()).toBeNull()
+    }
+  })
+
+  // A note left, the owner looking at its notes or changing it: none of those came by `read`, and the text stayed.
+  it('is deleted as anything is next asked of it, if its alarm never came', () => {
+    const asks: ((share: Share, at: number) => unknown)[] = [
+      (share, at) => share.takesNotes(at),
+      (share, at) => share.addNote('bm90ZQ', at),
+      (share, at) => share.notes(OWNER, at),
+      (share, at) => share.update(OWNER, { notes: false }, at),
+      (share, at) => share.guarded(at),
+    ]
+    for (const ask of asks) {
+      const sql = sqlite()
+      const share = new Share(sql)
+      share.create({ slug: 'slug', ownerHash: OWNER, subscriber: SUBSCRIBER, days: 30, entitledUntil: NOW + 30 * DAY, doc: 'sealed-doc', once: true, reveal: 'a'.repeat(64) }, NOW)
+      share.reveal(NOW, 'a'.repeat(64))
+      // Still held: nothing goes yet.
+      ask(share, NOW + REVEALED_KEPT_MS - 1)
+      expect(sql.all('SELECT COUNT(*) AS n FROM chunks')[0].n).toBe(1)
+      ask(share, NOW + REVEALED_KEPT_MS)
+      expect(sql.all('SELECT COUNT(*) AS n FROM chunks')[0].n).toBe(0)
+    }
+  })
+
+  it('is deleted as it’s next asked for, if its alarm never came', () => {
+    const sql = sqlite()
+    const share = new Share(sql)
+    share.create({ slug: 'slug', ownerHash: OWNER, subscriber: SUBSCRIBER, days: 30, entitledUntil: NOW + 30 * DAY, doc: 'sealed-doc', once: true, reveal: 'a'.repeat(64) }, NOW)
+    share.reveal(NOW, 'a'.repeat(64))
+    expect(status(() => share.reveal(NOW + REVEALED_KEPT_MS, 'a'.repeat(64)))).toBe(410)
+    expect(sql.all('SELECT COUNT(*) AS n FROM chunks')[0].n).toBe(0)
+  })
+
+  it('made before there were tokens, is deleted in the step it’s handed over, as it was', () => {
+    const sql = sqlite()
+    const share = new Share(sql)
+    share.create({ slug: 'slug', ownerHash: OWNER, subscriber: SUBSCRIBER, days: 30, entitledUntil: NOW + 30 * DAY, doc: 'sealed-doc', once: true }, NOW)
+    expect(share.reveal(NOW)).toMatchObject({ doc: 'sealed-doc' })
+    expect(sql.all('SELECT COUNT(*) AS n FROM chunks')[0].n).toBe(0)
+    expect(status(() => share.reveal(NOW + 1))).toBe(410)
+    expect(share.nextAlarm()).toBe(NOW + 30 * DAY)
+  })
+
+  // Emptied, its three tables stayed for every share ever ended (the server audit of 2026-11-23).
+  // And not by deleting the object's storage and putting the mark back after: between those two there was a
+  // moment with no mark, when whoever held the link could share their own text at it (found checking the fix, 2026-11-23).
+  it('ended, keeps the mark of it alone, set in the one step its tables go, and can’t be made again', () => {
+    const sql = sqlite()
+    const share = new Share(sql)
+    share.create({ slug: 'slug', ownerHash: OWNER, subscriber: SUBSCRIBER, days: 30, entitledUntil: NOW + 30 * DAY, doc: 'sealed-doc' }, NOW)
+    let steps = 0
+    const real = sql.transaction
+    sql.transaction = (fn) => (steps++, real(fn))
+    share.revoke(OWNER, NOW)
+    expect(steps).toBe(1)
+    const own = () => sql.all("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").map((row) => row.name)
+    expect(own()).toEqual(['meta'])
+    expect(sql.all('SELECT k, v FROM meta')).toEqual([{ k: 'ended', v: 1 }])
+    // An opening counted, or a renewal heard of, by a request it was revoked in the middle of: the mark stays the mark alone.
+    share.countOpen(null)
+    share.entitle(NOW + 60 * DAY)
+    expect(sql.all('SELECT k, v FROM meta')).toEqual([{ k: 'ended', v: 1 }])
+    expect(status(() => share.create({ slug: 'slug', ownerHash: OWNER, subscriber: SUBSCRIBER, days: 30, entitledUntil: NOW + 30 * DAY, doc: 'again' }, NOW))).toBe(409)
+    expect(status(() => share.read(NOW))).toBe(404)
+    expect(status(() => share.notes(OWNER, NOW))).toBe(404)
+    // Woken again, it still makes no tables for itself.
+    const woken = new Share(sql)
+    expect(status(() => woken.read(NOW))).toBe(404)
+    expect(status(() => woken.create({ slug: 'slug', ownerHash: OWNER, subscriber: SUBSCRIBER, days: 30, entitledUntil: NOW + 30 * DAY, doc: 'again' }, NOW))).toBe(409)
+    expect(own()).toEqual(['meta'])
   })
 
   it('says so to the next to ask, in words the reader’s page knows', () => {
@@ -418,5 +531,72 @@ describe('how many times a share has been opened', () => {
     await readShare(share, NOW, never)
     share.revoke(OWNER, NOW)
     expect(sql.all('SELECT k FROM meta')).toEqual([{ k: 'ended' }])
+  })
+})
+
+// Emptied, an ended share's tables stayed for good (the server audit of 2026-11-23).
+describe('a share that has ended, in its object', () => {
+  function object() {
+    const sql = sqlite()
+    const share = new Share(sql)
+    const state = { alarm: undefined as number | null | undefined, released: [] as string[], away: false }
+    // Its own, not SQLite's (the one it keeps for a table that numbers its rows).
+    const tables = () => sql.all("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").map((row) => String(row.name)).sort()
+    const subscriber = () => ({
+      release: async (slug: string) => {
+        if (state.away) throw new Error('The subscription is away')
+        state.released.push(slug)
+        return { status: 200, body: {} }
+      },
+      expiry: async () => ({ status: 200, body: null }),
+    })
+    const effects = {
+      subscriber: subscriber as unknown as Parameters<typeof shareRequests>[1]['subscriber'],
+      alarm: async (at: number | null) => void (state.alarm = at),
+    }
+    const clock = { now: NOW }
+    const requests = shareRequests(share, effects, () => clock.now)
+    const create = () => requests.create({ slug: 'slug', ownerHash: OWNER, subscriber: SUBSCRIBER, days: 30, entitledUntil: NOW + 30 * DAY, doc: 'sealed-doc' })
+    return { share, state, tables, effects, clock, requests, create }
+  }
+
+  it('revoked, keeps the mark of it alone, and frees its place', async () => {
+    const { requests, state, tables, create } = object()
+    expect((await create()).status).toBe(201)
+    expect(tables()).toEqual(['chunks', 'meta', 'notes'])
+    expect((await requests.revoke(OWNER)).status).toBe(200)
+    expect([state.alarm, state.released]).toEqual([null, ['slug']])
+    expect(tables()).toEqual(['meta'])
+    expect((await create()).status).toBe(409)
+    expect((await requests.read([])).status).toBe(404)
+  })
+
+  it('expired, the same', async () => {
+    const { share, state, tables, effects, create } = object()
+    await create()
+    await expireShare(share, NOW + 30 * DAY, effects)
+    expect(state.released).toEqual(['slug'])
+    expect(tables()).toEqual(['meta'])
+    expect((await create()).status).toBe(409)
+    // Its alarm come again does nothing.
+    await expireShare(share, NOW + 31 * DAY, effects)
+    expect(state.released).toEqual(['slug'])
+  })
+
+  // Its subscription told before its tables went, one that couldn't be reached left them for good: the alarm came
+  // again to a share already ended, and did nothing (found checking the fix, 2026-11-23).
+  it('is down to its mark though its subscription can’t be told, expired or revoked', async () => {
+    const expired = object()
+    await expired.create()
+    expired.state.away = true
+    await expect(expireShare(expired.share, NOW + 30 * DAY, expired.effects)).rejects.toThrow('The subscription is away')
+    expect(expired.tables()).toEqual(['meta'])
+    expect((await expired.create()).status).toBe(409)
+    const revoked = object()
+    await revoked.create()
+    revoked.state.away = true
+    await expect(revoked.requests.revoke(OWNER)).rejects.toThrow('The subscription is away')
+    expect(revoked.tables()).toEqual(['meta'])
+    expect((await revoked.create()).status).toBe(409)
   })
 })

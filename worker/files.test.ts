@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { base64url } from './base64'
 import { frontDoor, type Routes } from './door'
 import { emptyFiles } from './files'
+import { sha256 } from './http'
 import { FILE_FLOOR, Library, libraryRequests, type Region } from './library'
 import { signedMessage } from './signing'
 import { Subscriber, subscriberRequests } from './subscriber'
@@ -236,6 +237,99 @@ describe('a library’s files on the server', () => {
     expect(refused.status).toBe(422)
     expect((await listed(call)).bytes).toBe(0)
     expect((await call(`/v1/files/${KEY2}`, await put(sealed(6000)))).status).toBe(200)
+  })
+
+  // Which of its files a library's documents still use, only a device can say (worker/library `namedFiles`).
+  describe('told which files a device’s documents use', () => {
+    const used = (body: unknown, headers: Record<string, string> = {}): RequestInit => ({ method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', ...headers } })
+
+    it('names them as of now, and takes "that’s all", said day after day, as devices going on saying', async () => {
+      const call = server({ expiresIn: 400 * DAY })
+      await call.create()
+      await call(`/v1/files/${KEY}`, await put(sealed(5000)))
+      await call(`/v1/files/${KEY2}`, await put(sealed(5000)))
+      const sent = call.clock.now
+      const asked = () => call.library().unlisted([KEY, KEY2], call.clock.now)
+      // For ninety-five days a device names the one, in part and then as all; its pulls say it's one that says.
+      for (let day = 1; day <= 95; day++) {
+        call.clock.now = sent + day * DAY
+        expect((await call('/v1/files/used', used({ keys: [KEY] }))).status).toBe(200)
+        // Not yet said to be all: nothing is taken for unused on the strength of part.
+        if (day === 1) expect(asked()).toEqual({ keys: [], unused: [] })
+        expect((await call('/v1/files/used', used({ keys: [], done: true }))).status).toBe(200)
+        expect((await call('/v1/changes?since=0&names=1')).status).toBe(200)
+        if (day === 89) expect(asked()).toEqual({ keys: [], unused: [] })
+      }
+      // The other, sent ninety-five days ago and named by none since, is the one nothing uses.
+      expect(asked()).toEqual({ keys: [], unused: [KEY2] })
+      // Till a Nib that doesn't say which it uses syncs the library: then none is, for ninety days.
+      expect((await call('/v1/changes?since=0')).status).toBe(200)
+      expect(asked()).toEqual({ keys: [], unused: [] })
+    })
+
+    it('wants keys that are keys, a thousand at most, and `done` as yes or no', async () => {
+      const call = server()
+      await call.create()
+      for (const body of [{}, { keys: 'all' }, { keys: ['short'] }, { keys: [KEY, 7] }, { keys: Array(1001).fill(KEY) }, { keys: [KEY], done: 'yes' }]) {
+        expect((await call('/v1/files/used', used(body))).status, JSON.stringify(body).slice(0, 40)).toBe(400)
+      }
+      expect((await call('/v1/files/used', used({ keys: Array(1000).fill(KEY), done: false }))).status).toBe(200)
+      expect((await call('/v1/files/used', { method: 'GET' })).status).toBe(404)
+    })
+
+    it('is the library’s alone, and needs Nib Plus', async () => {
+      const call = server()
+      await call.create()
+      expect((await call('/v1/files/used', used({ keys: [KEY] }, auth(ID, 'B'.repeat(43))))).status).toBe(401)
+      expect((await call('/v1/files/used', used({ keys: [KEY] }, auth(OTHER)))).status).toBe(404)
+      call.clock.now += 30 * DAY
+      expect((await call('/v1/files/used', used({ keys: [KEY] }))).status).toBe(402)
+    })
+  })
+
+  // Deleted and sent again at once, a file could be left listed and not in the store: listed for good, fetched by
+  // none, and never sent again by the device that had it (found checking the check, 2026-11-23).
+  it('forgets a file it lists that the store hasn’t, when one is asked for; not one on its way in', async () => {
+    const call = server()
+    await call.create()
+    await call(`/v1/files/${KEY}`, await put(sealed(5000)))
+    call.files.kept.clear()
+    expect(((await (await call('/v1/files')).json()) as { files: unknown[] }).files).toHaveLength(1)
+    // Asked for the least while after it was stored.
+    call.clock.now += 1
+    expect((await call(`/v1/files/${KEY}`)).status).toBe(404)
+    expect(await (await call('/v1/files')).json()).toMatchObject({ files: [], bytes: 0 })
+    // One booked, and still being sent: asked for, there's none yet, and its booking stays.
+    call.library().fileRoom(await sha256('A'.repeat(43)), KEY2, 5000, call.clock.now)
+    expect((await call(`/v1/files/${KEY2}`)).status).toBe(404)
+    expect(((await (await call('/v1/files')).json()) as { bytes: number }).bytes).toBe(5000)
+  })
+
+  // Asked for as it was being sent: the store had none yet when asked, and it landed and was listed before the
+  // library was told it was missing. Forgotten then, it was in the store and listed nowhere (found checking step 4, 2026-11-23).
+  // By the library's own clock, as the file's listing is: by the Worker's, a library whose clock ran behind it
+  // forgot a file that had just landed (found checking step 4 again, 2026-11-23).
+  it('doesn’t forget one stored since the store was asked for it, or in the same moment', async () => {
+    const call = server()
+    // This library's clock is a minute behind the Worker's.
+    call.clock.now -= 60_000
+    await call.create()
+    await call(`/v1/files/${KEY}`, await put(sealed(5000)))
+    const get = call.files.get
+    // The store has none when it's asked; and the file lands and is listed, a moment on, before the library hears it was missing.
+    call.files.get = async () => {
+      call.clock.now += 1
+      call.library().storedFile(KEY, 5000, call.clock.now)
+      return null
+    }
+    expect((await call(`/v1/files/${KEY}`)).status).toBe(404)
+    expect(await (await call('/v1/files')).json()).toMatchObject({ files: [{ k: KEY, size: 5000 }], bytes: 5000 })
+    // Listed in the very moment the library was asked: which came first can't be told, and it's kept.
+    call.files.get = async () => null
+    call.library().storedFile(KEY, 5000, call.clock.now)
+    expect((await call(`/v1/files/${KEY}`)).status).toBe(404)
+    expect(await (await call('/v1/files')).json()).toMatchObject({ files: [{ k: KEY, size: 5000 }], bytes: 5000 })
+    call.files.get = get
   })
 
   it('deletes one from the list and from the store, and again is nothing', async () => {

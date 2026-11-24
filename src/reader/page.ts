@@ -1,6 +1,9 @@
 import { MAX_NOTE_BYTES, READ_ONCE_GONE } from '../../worker/wire.mjs'
 import { NOTE_LIMITS, open, PASSWORD_MARK, revealToken, seal, sealedBytes, validKey, validSlug, withPassword } from '../share/crypto'
+import type { JSONContent } from '@tiptap/react'
+import { scriptTitle } from '../lib/fountain'
 import { renderDocument } from './render'
+import { renderScript } from './script'
 
 /**
  * The page at /d/<slug>#<key>: a draft someone shared from Nib. The key is in
@@ -56,7 +59,13 @@ export async function openDraft(root: HTMLElement, link: URL, fetch: typeof wind
   if (response.status === 410) return say((await readOnceGone(response)) ? ALREADY_READ : 'This draft is no longer shared.')
   if (response.status === 503) return say('Shared drafts are unavailable just now. Try again later.')
   if (!response.ok) return say('Something went wrong opening this draft. Try reloading.')
-  let shared = (await response.json()) as { doc?: string; once?: boolean; counted?: boolean; expiresAt: number; notesOn: boolean }
+  let shared: { doc?: string; once?: boolean; counted?: boolean; expiresAt: number; notesOn: boolean }
+  try {
+    shared = await response.json()
+  } catch {
+    // A long draft's connection dropped part way: the page stayed on "Opening the draft…" for good.
+    return say('Couldn’t reach Nib. Check your connection, then reload.')
+  }
   const once = shared.once === true
   const counted = shared.counted === true
   // The key the password typed for one to be read once makes, if one was.
@@ -69,7 +78,7 @@ export async function openDraft(root: HTMLElement, link: URL, fetch: typeof wind
   }
   if (typeof shared.doc !== 'string') return say('This draft can’t be shown. Ask the writer to share it again.')
 
-  let draft: { kind?: unknown; body?: unknown }
+  let draft: { kind?: unknown; body?: unknown; screenplay?: unknown }
   let sealKey = key
   // Handed over for that password's token, it opens with it; an older one, handed over for the link's, may not.
   const opened = tried ? await open(tried, slug, 'doc', shared.doc).catch(() => undefined) : undefined
@@ -77,7 +86,7 @@ export async function openDraft(root: HTMLElement, link: URL, fetch: typeof wind
     draft = opened as typeof draft
     sealKey = tried!
   } else if (needsPassword) {
-    ;({ draft, sealKey } = await unlock(root, slug, key, shared.doc, once ? ' It’s deleted from Nib’s server now: keep this page open until you’ve read it.' : counted ? ` ${COUNTED}` : ''))
+    ;({ draft, sealKey } = await unlock(root, slug, key, shared.doc, once ? ' It’s deleted from Nib’s server within ten minutes: keep this page open until you’ve read it.' : counted ? ` ${COUNTED}` : ''))
   } else {
     try {
       draft = (await open(key, slug, 'doc', shared.doc)) as typeof draft
@@ -90,11 +99,20 @@ export async function openDraft(root: HTMLElement, link: URL, fetch: typeof wind
   // stayed on "Opening the draft…".
   if (typeof draft !== 'object' || draft === null) return say('This draft can’t be shown. Ask the writer to share it again.')
   const article = element('article', draft.kind === 'note' ? 'draft note' : 'draft page')
-  renderDocument(draft.body, article)
-  document.title = article.querySelector('h1, h2, h3, h4, h5, h6, p')?.textContent?.trim().slice(0, 80) || 'A shared draft'
+  // A screenplay set out as a script, and called by its title (src/reader/script); one that can't be read so, as any draft.
+  let title: string | undefined
+  try {
+    if (draft.kind !== 'page' || draft.screenplay !== true) throw new Error('not a screenplay')
+    renderScript(draft.body, article)
+    article.classList.add('script')
+    title = scriptTitle(draft.body as JSONContent)
+  } catch {
+    renderDocument(draft.body, article)
+  }
+  document.title = (title ?? article.querySelector('h1, h2, h3, h4, h5, h6, p')?.textContent?.trim())?.slice(0, 80) || 'A shared draft'
 
   const until = new Date(shared.expiresAt).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })
-  const header = element('header', 'meta', once ? 'A draft shared from Nib, to be read once. It’s now deleted from Nib’s server: this page is the only copy, until you close it.' : `A draft shared from Nib, until ${until}`)
+  const header = element('header', 'meta', once ? 'A draft shared from Nib, to be read once. It’s deleted from Nib’s server within ten minutes: this page is your copy, until you close it.' : `A draft shared from Nib, until ${until}`)
   root.replaceChildren(header, article, ...(shared.notesOn ? notes(article, slug, sealKey, fetch) : []), footer(link, counted))
 }
 
@@ -119,7 +137,7 @@ const readOnceGone = async (response: Response) => ((await response.json().catch
 function reveal(root: HTMLElement, slug: string, key: string, needsPassword: boolean, fetch: typeof window.fetch): Promise<(Revealed & { sealKey?: string }) | null> {
   return new Promise((resolve) => {
     const form = element('form', 'unlock')
-    const label = element('p', '', `This draft can be read once. When you open it, it’s deleted from Nib’s server, and this link stops working. The writer will see that it has been read.${needsPassword ? ' It needs a password too: the writer will have given it to you with the link.' : ''}`)
+    const label = element('p', '', `This draft can be read once. When you open it, this link stops working for anyone else, and the draft is deleted from Nib’s server ten minutes later. The writer will see that it has been read.${needsPassword ? ' It needs a password too: the writer will have given it to you with the link.' : ''}`)
     const input = element('input')
     input.type = 'password'
     input.autocomplete = 'off'
@@ -148,7 +166,13 @@ function reveal(root: HTMLElement, slug: string, key: string, needsPassword: boo
         if (response.ok) return resolve({ ...((await response.json()) as Revealed), sealKey })
         if (response.status === 410 && (await readOnceGone(response))) return resolve(null)
         message.textContent =
-          response.status === 503 ? 'Shared drafts are unavailable just now. Try again later.' : sealKey && response.status === 404 ? 'That password doesn’t open it. Check it with the writer.' : 'This draft is no longer shared.'
+          response.status === 503
+            ? 'Shared drafts are unavailable just now. Try again later.'
+            : response.status === 429
+              ? 'Too many tries at this draft today. Try again tomorrow.'
+              : sealKey && response.status === 404
+                ? 'That password doesn’t open it. Check it with the writer.'
+                : 'This draft is no longer shared.'
         if (sealKey) input.select()
       } catch {
         message.textContent = 'Couldn’t reach Nib. Check your connection and try again.'
@@ -166,7 +190,7 @@ function reveal(root: HTMLElement, slug: string, key: string, needsPassword: boo
  * server by now, since closing the page to go and ask for the password would
  * lose it, or that the link's openings are counted.
  */
-function unlock(root: HTMLElement, slug: string, key: string, doc: string, more: string): Promise<{ draft: { kind?: unknown; body?: unknown }; sealKey: string }> {
+function unlock(root: HTMLElement, slug: string, key: string, doc: string, more: string): Promise<{ draft: { kind?: unknown; body?: unknown; screenplay?: unknown }; sealKey: string }> {
   return new Promise((resolve) => {
     const form = element('form', 'unlock')
     const label = element('p', '', `This draft needs a password. The writer will have given it to you with the link.${more}`)
@@ -190,7 +214,7 @@ function unlock(root: HTMLElement, slug: string, key: string, doc: string, more:
       message.textContent = 'Opening…'
       try {
         const sealKey = await withPassword(key, slug, input.value)
-        const draft = (await open(sealKey, slug, 'doc', doc)) as { kind?: unknown; body?: unknown }
+        const draft = (await open(sealKey, slug, 'doc', doc)) as { kind?: unknown; body?: unknown; screenplay?: unknown }
         resolve({ draft, sealKey })
       } catch {
         message.textContent = 'That password doesn’t open it. Check it with the writer.'

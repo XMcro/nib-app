@@ -113,3 +113,94 @@ describe('kept on this device only, as a document travels', () => {
   })
 })
 
+describe('where a document went on the writer’s blog, as it travels', () => {
+  const post = { site: 'https://blog.example', id: '42', url: 'https://blog.example/?p=42', edit: 'https://blog.example/wp-admin/post.php?post=42&action=edit', pictures: { ['a'.repeat(32)]: 'https://blog.example/uploads/a.png' } }
+
+  it('goes with sync and into a backup, and stays when a document arrives from a Nib before it', () => {
+    expect(forSync(item({ posted: [post] })).posted).toEqual([post])
+    expect(forBackup(item({ posted: [post] })).posted).toEqual([post])
+    const silent = item({})
+    keepMissing(silent, item({ posted: [post] }))
+    expect(silent.posted).toEqual([post])
+  })
+
+  it('reads posts with links and an id, and their pictures by what’s in them, and nothing else', () => {
+    expect(readFields({ posted: [post] }, 'sync').posted).toEqual([post])
+    // Micro.blog knows its posts by their addresses alone.
+    const micro = { ...post, site: 'https://micro.blog', id: '', url: 'https://mara.micro.blog/2026/11/21/salt.html' }
+    expect(readFields({ posted: [micro] }, 'sync').posted).toEqual([micro])
+    expect(readFields({ posted: [] }, 'sync').posted).toEqual([])
+    expect('posted' in readFields({ posted: 'yes' }, 'sync')).toBe(false)
+    const odd = [
+      { ...post, site: 'javascript:alert(1)' },
+      { ...post, id: '42/../../wp-admin' },
+      { ...post, edit: 'ftp://blog.example' },
+      null,
+    ]
+    expect(readFields({ posted: odd }, 'sync').posted).toEqual([])
+    const pictures = readFields({ posted: [{ ...post, pictures: { short: 'https://blog.example/b.png', ['b'.repeat(32)]: 'data:image/png;base64,AA' } }] }, 'sync').posted
+    expect(pictures?.[0].pictures).toEqual({})
+  })
+})
+
+describe('a chapter’s summary and status on the corkboard, as a document travels', () => {
+  it('go with sync and into a backup', () => {
+    const card = item({ kind: 'page', summary: 'Mara finds the logbook.', status: 'revised' })
+    expect(forSync(card)).toMatchObject({ summary: 'Mara finds the logbook.', status: 'revised' })
+    expect(forBackup(card)).toMatchObject({ summary: 'Mara finds the logbook.', status: 'revised' })
+  })
+
+  it('read one line of text, a status there is, or null, and nothing else', () => {
+    expect(readFields({ summary: '  Mara finds\nthe logbook.  ', status: 'done' }, 'sync')).toMatchObject({ summary: 'Mara finds the logbook.', status: 'done' })
+    expect(readFields({ summary: null, status: null }, 'backup')).toMatchObject({ summary: null, status: null })
+    // A draft is no status: one sent as 'draft' isn't one there is.
+    for (const odd of [3, {}, true]) expect('summary' in readFields({ summary: odd }, 'sync')).toBe(false)
+    for (const odd of ['draft', 'Done', 1]) expect('status' in readFields({ status: odd }, 'sync')).toBe(false)
+    // Only spaces is none.
+    expect(readFields({ summary: '   ' }, 'sync').summary).toBeNull()
+  })
+
+  it('stay when a document arrives from a Nib that has never heard of them, and go when they’re taken off', () => {
+    const silent = item({})
+    keepMissing(silent, item({ summary: 'Mara finds the logbook.', status: 'done' }))
+    expect(silent).toMatchObject({ summary: 'Mara finds the logbook.', status: 'done' })
+    const off = item({ summary: null, status: null })
+    keepMissing(off, item({ summary: 'Mara finds the logbook.', status: 'done' }))
+    expect(off).toMatchObject({ summary: null, status: null })
+  })
+})
+
+describe('a screenplay, as a document travels', () => {
+  it('goes with sync and into a backup, reads true or null and nothing else, and stays when an older Nib sends the page without it', () => {
+    const script = item({ kind: 'page', screenplay: true })
+    expect(forSync(script)).toMatchObject({ screenplay: true })
+    expect(forBackup(script)).toMatchObject({ screenplay: true })
+    expect(readFields({ screenplay: true }, 'sync')).toMatchObject({ screenplay: true })
+    expect(readFields({ screenplay: null }, 'backup')).toMatchObject({ screenplay: null })
+    for (const odd of [false, 'yes', 1]) expect('screenplay' in readFields({ screenplay: odd }, 'sync')).toBe(false)
+    const silent = item({ kind: 'page' })
+    keepMissing(silent, item({ kind: 'page', screenplay: true }))
+    expect(silent.screenplay).toBe(true)
+    const off = item({ kind: 'page', screenplay: null })
+    keepMissing(off, item({ kind: 'page', screenplay: true }))
+    expect(off.screenplay).toBeNull()
+  })
+})
+
+describe('a locked document’s summary', () => {
+  const vault = { salt: 'A'.repeat(22), sealed: 'B'.repeat(40) }
+
+  it('is taken off when the lock arrives from a Nib from before summaries, which says nothing of it', () => {
+    const locked = item({ vault })
+    keepMissing(locked, item({ summary: 'Mara confesses to Joe.', status: 'done' }))
+    expect(locked.summary).toBeNull()
+    // What isn't words about the text stays.
+    expect(locked.status).toBe('done')
+  })
+
+  it('is taken off one arriving with both, from another device or a backup', () => {
+    expect(readFields({ vault, summary: 'Mara confesses to Joe.' }, 'sync').summary).toBeNull()
+    expect(readFields({ vault, summary: 'Mara confesses to Joe.' }, 'backup').summary).toBeNull()
+    expect(readFields({ summary: 'Mara confesses to Joe.' }, 'sync').summary).toBe('Mara confesses to Joe.')
+  })
+})

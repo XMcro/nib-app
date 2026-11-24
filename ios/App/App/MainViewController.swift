@@ -15,7 +15,7 @@ private final class BridgeGate: NSObject, WKScriptMessageHandler {
     /// `jsName` here), and Capacitor's own for the console's lines.
     private static let plugins: Set<String> = [
         "NibStore", "NibKeychain", "NibPdf", "NibSave", "NibWindow", "NibLock", "NibClipboard", "NibReminders",
-        "NibInbox", "NibText", "NibPicture", "NibSpeech", "NibCloud", "NibPreview", "Filesystem", "Share", "Console",
+        "NibInbox", "NibText", "NibPicture", "NibSpeech", "NibCloud", "NibPreview", "NibBlog", "NibFolder", "Filesystem", "Share", "Console",
     ]
     private weak var bridge: WKScriptMessageHandler?
     private let page: URL
@@ -51,6 +51,8 @@ class MainViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(NibStorePlugin())
         bridge?.registerPluginInstance(NibKeychainPlugin())
         bridge?.registerPluginInstance(NibPdfPlugin())
+        bridge?.registerPluginInstance(NibBlogPlugin())
+        bridge?.registerPluginInstance(NibFolderPlugin())
         bridge?.registerPluginInstance(NibSavePlugin())
         bridge?.registerPluginInstance(NibWindowPlugin())
         bridge?.registerPluginInstance(NibLockPlugin())

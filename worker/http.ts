@@ -81,6 +81,13 @@ export function networksOf(request: Request, secret: string | undefined, purpose
   return Promise.all([keyedHash(purpose, secret, named(networkOf(ip), false)), keyedHash(purpose, secret, named(networkOf(ip, true), true))])
 }
 
+/**
+ * Whether a request came from the developer's own machine or network, as under `wrangler dev`: Cloudflare says
+ * where each one really came from (CF-Connecting-IP), and from an address like these none does. Not told by the
+ * request's host, which under `wrangler dev` is the route's own (measured, wrangler 4.137).
+ */
+export const fromHere = (request: Request) => /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$)/.test(request.headers.get('CF-Connecting-IP') ?? '')
+
 /** A body past its route's limit: answered 413. */
 export class TooLarge extends Error {}
 
@@ -95,25 +102,58 @@ export async function readJson(request: Request, max: number): Promise<Record<st
 
 /** The body's bytes, past `max` given up on as readJson says; none if it has none. */
 export async function readBytes(request: Request, max: number): Promise<Uint8Array<ArrayBuffer>> {
-  if (Number(request.headers.get('Content-Length') ?? 0) > max) throw new TooLarge()
+  const said = Number(request.headers.get('Content-Length') ?? 0)
+  if (said > max) throw new TooLarge()
   if (!request.body) return new Uint8Array()
   const reader = request.body.getReader()
-  const parts: Uint8Array[] = []
+  // Into one buffer, grown by doubling as more comes: each piece kept as it came till the end, a body sent a byte
+  // at a time was held at some 250 times its size (the server audit of 2026-11-23). Never of the length said before
+  // any of it has come: a request that said 16 MB and sent nothing was given 16 MB to wait in.
+  let bytes = new Uint8Array(Math.min(max, 64 * 1024))
   let size = 0
   for (let part = await reader.read(); !part.done; part = await reader.read()) {
-    size += part.value.byteLength
-    if (size > max) {
+    const end = size + part.value.byteLength
+    if (end > max) {
       await reader.cancel()
       throw new TooLarge()
     }
-    parts.push(part.value)
+    if (end > bytes.length) {
+      const grown = new Uint8Array(Math.min(max, Math.max(end, bytes.length * 2)))
+      grown.set(bytes.subarray(0, size))
+      bytes = grown
+    }
+    bytes.set(part.value, size)
+    size = end
   }
-  const bytes = new Uint8Array(size)
-  parts.reduce((at, part) => (bytes.set(part, at), at + part.byteLength), 0)
-  return bytes
+  return size === bytes.length ? bytes : bytes.slice(0, size)
+}
+
+/**
+ * The most objects and lists a body may open and still be parsed: a push of the most records there can be is one
+ * of each and an object a record (worker/wire MAX_RECORDS); every other body opens one or two. Past it, it's not
+ * a body Nib sends: 4 MB of brackets, which anyone could send to make a free link, took fifteen to thirty times
+ * that in memory to parse (the server audit of 2026-11-23).
+ */
+const MAX_OPENED = 4096
+
+/** Whether a body opens more objects and lists than MAX_OPENED, outside its strings: a note of code is brackets someone wrote. */
+function opensTooMany(bytes: Uint8Array): boolean {
+  let opened = 0
+  let quoted = false
+  for (let at = 0; at < bytes.length; at++) {
+    const byte = bytes[at]
+    if (quoted) {
+      // A backslash takes the next byte with it, a quote among them.
+      if (byte === 0x5c) at++
+      else if (byte === 0x22) quoted = false
+    } else if (byte === 0x22) quoted = true
+    else if ((byte === 0x7b || byte === 0x5b) && ++opened > MAX_OPENED) return true
+  }
+  return false
 }
 
 export function parseJson(bytes: Uint8Array<ArrayBuffer>): Record<string, unknown> | null {
+  if (opensTooMany(bytes)) return null
   try {
     const body = JSON.parse(new TextDecoder().decode(bytes))
     return typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : null

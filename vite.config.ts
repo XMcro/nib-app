@@ -55,6 +55,8 @@ const notices = licences('licences.txt', {
   // whose Cordova part is Apache Cordova's, under the Apache License, of which @capacitor/ios ships no text: TypeScript's is that licence.
   texts: [
     `Apache Cordova, in @capacitor/ios (Apache-2.0)\n\nCopyright The Apache Software Foundation. This product includes software developed at The Apache Software Foundation (http://www.apache.org/).\n\n${readFileSync('node_modules/typescript/LICENSE.txt', 'utf8').trim()}`,
+    // And the focus sounds' recordings, which aren't Nib's: who made each, and under what.
+    readFileSync('public/sounds/credits.txt', 'utf8').trim(),
   ],
 })
 

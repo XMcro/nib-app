@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 
-const read = vi.hoisted(() => vi.fn())
-vi.mock('@capacitor/core', () => ({ registerPlugin: () => ({ read }) }))
+const { read, warm } = vi.hoisted(() => ({ read: vi.fn(), warm: vi.fn(async () => {}) }))
+vi.mock('@capacitor/core', () => ({ registerPlugin: () => ({ read, warm }) }))
 vi.mock('./platform', () => ({ nativeApp: true }))
 
-const { READ_MAX, wordsIn } = await import('./pictureText')
+const { READ_MAX, warmUp, wordsIn } = await import('./pictureText')
 
 const png = () => new File([Uint8Array.of(137, 80, 78, 71)], 'page.png', { type: 'image/png' })
 
@@ -44,3 +44,15 @@ describe('wordsIn', () => {
   })
 })
 
+
+describe('warmUp', () => {
+  // Vision's first read in an app readied its reader first: 24 s on a Mac, paid by the first picture pasted.
+  it('has Vision readied a little after launch, once, not at once', () => {
+    vi.useFakeTimers()
+    warmUp()
+    expect(warm).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(5000)
+    expect(warm).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+  })
+})

@@ -7,6 +7,8 @@ import { db, type Item } from '../db/db'
 import * as items from '../db/items'
 import { asGoal, describeGoal, perDay } from './documentGoal'
 import { readCalendar, recordDay, streakAfter, useDailyGoal } from './goal'
+import { cardToOffer, rememberCardOffered } from './yearCard'
+import { KEEP_DAYS, readFolders, readHours } from './writingStats'
 import { useSprint } from './sprint'
 import { notWrittenHere, startedHere, wordsToday } from './writtenHere'
 import { localDay } from './time'
@@ -150,6 +152,17 @@ describe('the writing calendar', () => {
     expect(readCalendar()[localDay(Date.now())]).toBe(60)
   })
 
+  // Phase 13: the same words, by the hour they came in and the book they went into (lib/writingStats).
+  it('keeps the hour the words came in, and the book or folder they went into', () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-04T12:00:00') })
+    onTestFinished(() => void vi.useRealTimers())
+    const page = { ...doc('a', 100, LAST_WEEK), folder: 'Novel/Part 1' }
+    const { rerender } = renderHook(({ pages }) => useDailyGoal([], pages, true), { initialProps: { pages: [page] } })
+    rerender({ pages: [{ ...page, body: words(160) }] })
+    expect(readHours()['2026'][12]).toBe(60)
+    expect(readFolders()['2026-11-04']).toEqual({ Novel: 60 })
+  })
+
   it('keeps nothing without Plus', () => {
     const page = doc('a', 100, LAST_WEEK)
     const { rerender } = renderHook(({ pages }) => useDailyGoal([], pages, false), { initialProps: { pages: [page] } })
@@ -157,12 +170,13 @@ describe('the writing calendar', () => {
     expect(readCalendar()).toEqual({})
   })
 
-  it('lets go of days older than about 26 weeks, and skips days with nothing written', () => {
+  // Kept past a year (lib/writingStats KEEP_DAYS) for the year's stats; the calendar shows 26 weeks of it.
+  it('lets go of days older than KEEP_DAYS, and skips days with nothing written', () => {
     recordDay(300, MONDAY)
     recordDay(0, MONDAY + DAY)
-    recordDay(40, MONDAY + 181 * DAY)
-    expect(Object.keys(readCalendar())).toEqual(['2026-09-21', localDay(MONDAY + 181 * DAY)])
-    recordDay(50, MONDAY + 182 * DAY)
+    recordDay(40, MONDAY + (KEEP_DAYS - 1) * DAY)
+    expect(Object.keys(readCalendar())).toEqual(['2026-09-21', localDay(MONDAY + (KEEP_DAYS - 1) * DAY)])
+    recordDay(50, MONDAY + KEEP_DAYS * DAY)
     expect(readCalendar()).not.toHaveProperty('2026-09-21')
   })
 })
@@ -213,5 +227,27 @@ describe('useSprint', () => {
     localStorage.setItem('nib-sprint', JSON.stringify({ ...stored, startedAt: ended - 45 * 60_000, endsAt: ended }))
     act(() => startedHere('nothing')) // any recount: the new end is due at once
     await waitFor(() => expect(result.current.done).toEqual({ minutes: 45, written: 300 }))
+  })
+})
+
+describe('the year’s card, offered unasked', () => {
+  const december = new Date(2026, 11, 3, 12).getTime()
+
+  it('is offered in December to a writer with words this year, once a year', () => {
+    localStorage.clear()
+    expect(cardToOffer(december)).toBe(false)
+    recordDay(300, new Date(2026, 9, 2, 12).getTime())
+    expect(cardToOffer(new Date(2026, 10, 30, 12).getTime())).toBe(false)
+    expect(cardToOffer(december)).toBe(true)
+    rememberCardOffered(december)
+    expect(cardToOffer(december)).toBe(false)
+    recordDay(300, new Date(2027, 1, 2, 12).getTime())
+    expect(cardToOffer(new Date(2027, 11, 3, 12).getTime())).toBe(true)
+  })
+
+  it('isn’t offered for words only from the year before', () => {
+    localStorage.clear()
+    recordDay(300, new Date(2026, 9, 2, 12).getTime())
+    expect(cardToOffer(new Date(2027, 11, 3, 12).getTime())).toBe(false)
   })
 })

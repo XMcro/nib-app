@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import type { Item } from '../db/db'
 import { fitted, nibEditor, textClass } from '../editor/extensions'
-import { titleOf } from '../lib/text'
+import { isScreenplay, nameOf } from '../lib/fountain'
 
 /**
  * Side by side (Nib Plus): a second document beside the one being written,
@@ -11,22 +11,24 @@ import { titleOf } from '../lib/text'
  */
 export function BesidePane({ item, onSwap, onClose }: { item: Item; onSwap: () => void; onClose: () => void }) {
   const page = item.kind === 'page'
+  // A screenplay beside is laid out as one too (lib/fountain).
+  const screenplay = isScreenplay(item)
   const body = useMemo(() => fitted(item.body, page), [item.body, page])
   const editor = useEditor(
     {
-      ...nibEditor(page),
+      ...nibEditor(page, screenplay),
       content: body,
       editable: false,
-      editorProps: { attributes: { class: textClass(page), 'aria-readonly': 'true' } },
+      editorProps: { attributes: { class: textClass(page, screenplay), 'aria-readonly': 'true' } },
     },
-    [page],
+    [page, screenplay],
   )
   // Kept to the document as it changes elsewhere: synced, or swapped back and edited.
   useEffect(() => {
     if (editor && !editor.isDestroyed) editor.commands.setContent(body, { emitUpdate: false })
   }, [editor, body])
 
-  const title = titleOf(item.body)
+  const title = nameOf(item)
   return (
     <aside aria-label={`Beside: ${title}`} className="mt-11 flex h-[calc(100%-2.75rem)] w-1/2 shrink-0 flex-col border-l border-line">
       {/* Its buttons keep to the left: the right of this row is where App's notices come down. */}

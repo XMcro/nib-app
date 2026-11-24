@@ -1,4 +1,5 @@
 import type { Call } from './answer'
+import { isBase64 } from './base64'
 import { isJson, json, parseJson, readBytes, sha256 } from './http'
 import { inboxKey, sealedShape, sealPost, type Post } from './inbox-seal'
 import { findLibrary, type Asker, type Libraries, type LibraryRequests } from './library'
@@ -38,8 +39,6 @@ const ADDRESS = new RegExp(`^/v1/in/(${LIBRARY_ID_SHAPE})(?:\\.(${KEY_SHAPE}))?$
 const BEARER = new RegExp(`^Bearer (${KEY_SHAPE})$`)
 const HASH = /^[0-9a-f]{64}$/
 const FIELDS = ['title', 'text', 'url'] as const
-/** Standard base64, as a device's seal is (src/sync/crypto `seal`). */
-const SEALED = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 /**
  * What a service sent, as a post: JSON or a form with `title`, `text` and
@@ -111,7 +110,7 @@ export async function handleInbox(request: Request, { asked, body }: InboxDeps):
   if (path === '/v1/inbox' && request.method === 'PUT') {
     const { key, address, kept } = parseJson(await body()) ?? {}
     // The key is tried as one, so a post is never sealed with what isn't; the secret in the address comes as its hash; and what the devices keep, sealed and small.
-    const sealed = typeof kept === 'string' && kept.length > 0 && kept.length <= MAX_INBOX_KEPT && SEALED.test(kept)
+    const sealed = typeof kept === 'string' && kept.length > 0 && kept.length <= MAX_INBOX_KEPT && isBase64(kept)
     if (typeof key !== 'string' || typeof address !== 'string' || !HASH.test(address) || !sealed || !(await inboxKey(key))) {
       return json(request, 400, { error: 'Expected { key, address, kept }.' })
     }

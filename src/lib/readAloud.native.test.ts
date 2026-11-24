@@ -10,13 +10,21 @@ const { plugin, said } = vi.hoisted(() => {
         new Promise<{ finished: boolean }>((resolve, reject) => said.push({ text, rate, answer: (finished) => resolve({ finished }), fail: () => reject(new Error('no voice')) })),
     ),
     stop: vi.fn(() => Promise.resolve()),
+    record: vi.fn(),
+    stopRecording: vi.fn(() => Promise.resolve()),
+    listener: null as ((progress: { done: number; of: number }) => void) | null,
+    removed: vi.fn(),
+    addListener: vi.fn(async (_: string, listener: (progress: { done: number; of: number }) => void) => {
+      plugin.listener = listener
+      return { remove: async () => plugin.removed() }
+    }),
   }
   return { plugin, said }
 })
 vi.mock('./platform', async (importOriginal) => ({ ...(await importOriginal<typeof import('./platform')>()), nativeApp: true }))
 vi.mock('@capacitor/core', async (importOriginal) => ({ ...(await importOriginal<typeof import('@capacitor/core')>()), registerPlugin: () => plugin }))
 
-const { canReadAloud, readAloud } = await import('./readAloud')
+const { canReadAloud, readAloud, record, RecordingStopped } = await import('./readAloud')
 const sentences = [
   { text: 'One goes.', from: 1, to: 10 },
   { text: 'Two goes.', from: 11, to: 20 },
@@ -65,5 +73,30 @@ describe('Read aloud with the app’s voice', () => {
     said[0].fail()
     await settle()
     expect(onEnd).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('saving it as audio', () => {
+  it('has the app make the file at Read aloud’s speed, telling how far it has got, and answers where it is', async () => {
+    vi.stubGlobal('localStorage', { getItem: (key: string) => (key === 'nib-reading-rate' ? '1.25' : null) })
+    plugin.record.mockImplementationOnce(async () => {
+      plugin.listener?.({ done: 3, of: 12 })
+      return { path: 'file:///caches/exports/Salt.m4a' }
+    })
+    const progress = vi.fn()
+    await expect(record('Salt.m4a', [{ say: 'One goes.' }], progress)).resolves.toBe('file:///caches/exports/Salt.m4a')
+    expect(plugin.record).toHaveBeenCalledWith({ name: 'Salt.m4a', pieces: [{ say: 'One goes.' }], rate: 1.25 })
+    expect(progress).toHaveBeenCalledWith(0.25)
+    expect(plugin.removed).toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('says so when it was stopped, and stops listening either way', async () => {
+    plugin.removed.mockClear()
+    plugin.record.mockRejectedValueOnce(Object.assign(new Error('Stopped.'), { code: 'stopped' }))
+    await expect(record('Salt.m4a', [{ say: 'One goes.' }], vi.fn())).rejects.toBeInstanceOf(RecordingStopped)
+    expect(plugin.removed).toHaveBeenCalledOnce()
+    plugin.record.mockRejectedValueOnce(new Error('Couldn’t make the audio.'))
+    await expect(record('Salt.m4a', [{ say: 'One goes.' }])).rejects.toThrow('Couldn’t make the audio.')
   })
 })

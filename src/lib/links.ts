@@ -1,7 +1,8 @@
 import type { JSONContent } from '@tiptap/react'
 import type { Item, Kind } from '../db/db'
-import { isInVault, LOCKED_LINK, plainText, setInVault, titleOf } from './text'
+import { isInVault, LOCKED_LINK, plainText, setInVault } from './text'
 import { isLocked } from './vault'
+import { nameOf } from './fountain'
 
 /**
  * Links between notes. A link holds the id of what it points to, so renaming
@@ -32,7 +33,7 @@ export function setLinkable(items: Item[], trash: Item[] = []) {
   bodies = new Map(items.filter((item) => !isLocked(item)).map((item) => [item.id, item.body]))
   const next = items.map((item) => ({
     id: item.id,
-    title: plainText(item.body).trim() ? titleOf(item.body) : '',
+    title: plainText(item.body).trim() ? nameOf(item) : '',
     kind: item.kind,
     updatedAt: item.updatedAt,
     locked: isLocked(item),

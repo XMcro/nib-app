@@ -9,12 +9,17 @@ const WORDS: Record<Repeat, string> = { day: 'Daily', week: 'Weekly', month: 'Mo
  * Remind me about this: a time from the quick choices or the picker, kept
  * with the note, so every device it's on rings. Shows the reminder already
  * set, if there is one, with the way to remove it.
+ *
+ * Without Nib Plus (moved 2026-11-20, for everyone), one that rings once:
+ * a repeat already set can stay, or go, and a new one asks for Plus.
  */
 export function ReminderDialog({
   current,
   repeat,
   snoozed,
   silentHere = false,
+  repeats,
+  onPlus,
   onSet,
   onClear,
   onClose,
@@ -26,6 +31,10 @@ export function ReminderDialog({
   snoozed?: number
   /** There's a reminder, and this device won't ring it: Nib's notifications aren't allowed here. */
   silentHere?: boolean
+  /** Plus's features are open: any repeat can be chosen. */
+  repeats: boolean
+  /** A repeat asked for without Plus. */
+  onPlus: () => void
   onSet: (at: number, repeat: Repeat | null) => Promise<void>
   onClear: () => Promise<void>
   onClose: () => void
@@ -67,13 +76,18 @@ export function ReminderDialog({
         <select
           aria-label="Repeat"
           value={again ?? ''}
-          onChange={(event) => setAgain(REPEATS.find((one) => one === event.target.value) ?? null)}
+          onChange={(event) => {
+            const next = REPEATS.find((one) => one === event.target.value) ?? null
+            if (!repeats && next !== null && next !== (repeat ?? null)) return onPlus()
+            setAgain(next)
+          }}
           className="rounded-md border border-line bg-transparent px-2 py-1.5 text-[12px] text-ink outline-none pointer-coarse:text-[16px]"
         >
           <option value="">Doesn’t repeat</option>
           {REPEATS.map((one) => (
             <option key={one} value={one}>
               {WORDS[one]}
+              {repeats || one === repeat ? '' : ' · Nib Plus'}
             </option>
           ))}
         </select>

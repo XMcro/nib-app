@@ -1,9 +1,52 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { due, keptHere, KEPT_WORDS, LOOK_MS, PAUSE_MS, SETTLE_DAYS, watchUpsell } from './upsell'
+import { due, ENDED_WITHIN, endedOffer, endingNotice, keptHere, KEPT_WORDS, LOOK_MS, PAUSE_MS, SETTLE_DAYS, watchUpsell } from './upsell'
 
 const DAY = 24 * 60 * 60 * 1000
+const HOUR = 60 * 60 * 1000
 const START = Date.UTC(2026, 9, 1)
+
+describe('endedOffer', () => {
+  const state = { first: START, times: 0 }
+  const until = START + 10 * DAY
+
+  it('is for free days of Plus once they have ended, and lately', () => {
+    expect(endedOffer(0, state, until)).toBe(false) // none ever had
+    expect(endedOffer(until, state, until - 1)).toBe(false) // still on
+    expect(endedOffer(until, state, until)).toBe(true)
+    expect(endedOffer(until, state, until + ENDED_WITHIN - 1)).toBe(true)
+    expect(endedOffer(until, state, until + ENDED_WITHIN)).toBe(false) // too long ago to bring up
+  })
+
+  it('is once for each run of days', () => {
+    expect(endedOffer(until, { ...state, endedFor: until }, until + DAY)).toBe(false)
+    const later = until + 20 * DAY
+    expect(endedOffer(later, { ...state, endedFor: until }, later + DAY)).toBe(true)
+  })
+})
+
+describe('endingNotice', () => {
+  beforeEach(() => localStorage.clear())
+  afterEach(() => vi.restoreAllMocks())
+  // Local times: the words say the writer's own day and hour.
+  const until = new Date(2026, 10, 21, 8, 30).getTime()
+
+  it('tells of the end the day before, once for each run of days', () => {
+    expect(endingNotice(until, until - DAY - 1)).toBeNull() // more than a day off
+    expect(endingNotice(until, new Date(2026, 10, 20, 9, 0).getTime())).toMatch(/^Your days of Nib Plus end tomorrow at 8:30\sAM\.$/)
+    expect(endingNotice(until, new Date(2026, 10, 20, 10, 0).getTime())).toBeNull() // told already
+    const later = new Date(2026, 10, 28, 18, 0).getTime()
+    expect(endingNotice(later, new Date(2026, 10, 28, 9, 0).getTime())).toMatch(/^Your days of Nib Plus end today at 6:00\sPM\.$/)
+  })
+
+  it('says nothing once they have ended, or without storage, where it would come up every launch', () => {
+    expect(endingNotice(until, until)).toBeNull()
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied')
+    })
+    expect(endingNotice(until, until - HOUR)).toBeNull()
+  })
+})
 
 describe('due', () => {
   it('waits out the first days, then asks', () => {
@@ -138,6 +181,52 @@ describe('watchUpsell', () => {
     const show = watch()
     vi.advanceTimersByTime(SETTLE_DAYS * DAY + LOOK_MS)
     expect(show).not.toHaveBeenCalled()
+  })
+
+  it('offers on free days of Plus once they have ended, even in the first days, and counts it', () => {
+    const until = START - DAY
+    const show = vi.fn((shown: () => void, _ended: boolean) => shown())
+    stop = watchUpsell(show, () => until)
+    vi.advanceTimersByTime(PAUSE_MS)
+    expect(show).toHaveBeenCalledOnce()
+    expect(show.mock.calls[0][1]).toBe(true)
+    expect(stored()).toEqual({ first: START + PAUSE_MS, last: START + PAUSE_MS, times: 1, endedFor: until })
+    // Not again for the same days.
+    vi.advanceTimersByTime(LOOK_MS)
+    expect(show).toHaveBeenCalledOnce()
+  })
+
+  it('offers on them whatever the week’s offers, and the weekly one waits its week after', () => {
+    const until = START - HOUR
+    localStorage.setItem('nib-upsell', JSON.stringify({ first: START - 30 * DAY, last: START - DAY, times: 1 }))
+    const show = vi.fn((shown: () => void, _ended: boolean) => shown())
+    stop = watchUpsell(show, () => until)
+    vi.advanceTimersByTime(PAUSE_MS)
+    expect(show.mock.calls.map(([, ended]) => ended)).toEqual([true])
+    // A week from the ended days' offer, at the first hourly look after it.
+    vi.advanceTimersByTime(7 * DAY - PAUSE_MS)
+    expect(show.mock.calls.map(([, ended]) => ended)).toEqual([true])
+    vi.advanceTimersByTime(LOOK_MS)
+    expect(show.mock.calls.map(([, ended]) => ended)).toEqual([true, false])
+  })
+
+  it('doesn’t bring up free days that ended long ago', () => {
+    const show = vi.fn()
+    stop = watchUpsell(show, () => START - ENDED_WITHIN)
+    vi.advanceTimersByTime(PAUSE_MS)
+    expect(show).not.toHaveBeenCalled()
+  })
+
+  it('looks again for ended days whose offer didn’t come up', () => {
+    const until = START - DAY
+    const show = vi.fn<(shown: () => void, ended: boolean) => void>()
+    stop = watchUpsell(show, () => until)
+    vi.advanceTimersByTime(PAUSE_MS)
+    expect(stored().endedFor).toBeUndefined()
+    vi.advanceTimersByTime(LOOK_MS)
+    expect(show).toHaveBeenCalledTimes(2)
+    show.mock.calls[1][0]()
+    expect(stored().endedFor).toBe(until)
   })
 
   it('stops looking when stopped', () => {

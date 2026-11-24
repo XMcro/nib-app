@@ -9,7 +9,7 @@ import { plainText } from '../lib/text'
 import { SyncHttpError } from './api'
 import { deriveKeys, newCode, seal, type SyncKeys } from './crypto'
 import { fakeServer } from './fakeServer'
-import { readClipperCode, sealPost } from '../../worker/inbox-seal'
+import { newInboxKeys, readClipperCode, sealPost } from '../../worker/inbox-seal'
 import { inboxAddress, newInboxAddress, postBody, postKind, takePosts } from './inbox'
 
 // Markdown as it's read everywhere, but for a text that says it can't be: whatever marked may yet fail on.
@@ -84,6 +84,59 @@ describe('the library’s inbox, from a device', () => {
     expect((await inboxAddress(keys, server.api))?.address ?? null).toBe(null)
     vi.mocked(server.api.inbox).mockResolvedValue({ on: true, kept: await seal(keys, 'inbox', null), posts: [], more: false })
     expect((await inboxAddress(keys, server.api))?.address ?? null).toBe(null)
+  })
+
+  // The code's hash alone could put another key in the inbox's place, with what its devices keep: posts were then
+  // sealed to whoever did it, and the devices threw away what they couldn't open (the server audit of 2026-11-23).
+  it('puts its own key back when the server has another’s, and opens what’s posted after', async () => {
+    const address = (await newInboxAddress(keys, server.api)).address
+    const told = await server.api.inbox()
+    const { kept, key } = told
+    expect(key).toMatch(/^B[A-Za-z0-9_-]{86}$/)
+    // The server never says the hash it takes posts at: that is what would let someone keep the address and change the key.
+    const hashed = await hash(secretOf(address))
+    expect(JSON.stringify(told)).not.toContain(hashed)
+    // Someone who has that hash all the same: their own key, the same address and the same `kept`.
+    const theirs = (await newInboxKeys()).publicKey
+    await server.api.setInbox(theirs, hashed, kept!)
+    expect((await server.api.inbox()).key).toBe(theirs)
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // The next look: the address shown is the same, and the server seals with this library's key again.
+    expect((await inboxAddress(keys, server.api))?.address).toBe(address)
+    expect((await server.api.inbox()).key).toBe(key)
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining('put back'))
+    await server.post(hashed, { title: 'Sent after' })
+    expect(await takePosts(keys, server.api)).toBe(1)
+  })
+
+  // With a caught request, another address put in the inbox's place, the key and what's kept left as they were:
+  // the writer's own address, still shown in Settings, took nothing from then on, and nothing here saw it (found
+  // checking the fix, 2026-11-23).
+  it('puts its own address back when the server takes posts at another, and its address takes them again', async () => {
+    const address = (await newInboxAddress(keys, server.api)).address
+    const { kept, key, check } = await server.api.inbox()
+    const hashed = await hash(secretOf(address))
+    expect(check).toMatch(/^[0-9a-f]{64}$/)
+    expect(check).not.toBe(hashed)
+    await server.api.setInbox(key!, await hash('someone else’s secret'), kept!)
+    await expect(server.post(hashed, { title: 'Refused' })).rejects.toBeInstanceOf(SyncHttpError)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // The next look, with nothing waiting.
+    expect(await takePosts(keys, server.api)).toBe(0)
+    expect((await server.api.inbox()).check).toBe(check)
+    await server.post(hashed, { title: 'Taken again' })
+    expect(await takePosts(keys, server.api)).toBe(1)
+  })
+
+  it('leaves the server as it is when the key is its own, or the server is one that doesn’t say', async () => {
+    await newInboxAddress(keys, server.api)
+    const set = vi.spyOn(server.api, 'setInbox')
+    await inboxAddress(keys, server.api)
+    await takePosts(keys, server.api)
+    const { kept } = await server.api.inbox()
+    vi.spyOn(server.api, 'inbox').mockResolvedValue({ on: true, kept, posts: [], more: false })
+    expect(await inboxAddress(keys, server.api)).not.toBeNull()
+    expect(set).not.toHaveBeenCalled()
   })
 
   it('gives a new address that stops the old one, and still opens what was waiting', async () => {

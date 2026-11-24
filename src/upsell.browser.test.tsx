@@ -29,7 +29,7 @@ const PRODUCTS: PlusProduct[] = [
   { id: 'app.nib.plus.yearly', displayName: 'Yearly', displayPrice: '$29.99', price: 29.99, currency: 'USD', period: 'year' },
 ]
 
-const state = vi.hoisted(() => ({ active: false, products: [] as unknown[], show: null as null | (() => void), shown: 0, held: null as null | Promise<void>, syncCode: null as string | null }))
+const state = vi.hoisted(() => ({ active: false, products: [] as unknown[], show: null as null | ((ended?: boolean) => void), shown: 0, held: null as null | Promise<void>, syncCode: null as string | null }))
 const { useState } = await import('react')
 vi.mock('./lib/plus', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./lib/plus')>()),
@@ -54,8 +54,8 @@ vi.mock('./sync', async (importOriginal) => {
 // Its timing has its own tests (lib/upsell.test); here, the moment it says.
 vi.mock('./lib/upsell', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./lib/upsell')>()),
-  watchUpsell: (show: (shown: () => void) => void) => {
-    state.show = () => show(() => state.shown++)
+  watchUpsell: (show: (shown: () => void, ended: boolean) => void) => {
+    state.show = (ended = false) => show(() => state.shown++, ended)
     return () => (state.show = null)
   },
 }))
@@ -122,6 +122,18 @@ describe('the upgrade popup in the app', () => {
     await act(async () => state.show!())
     expect(await screen.findByRole('radio', { name: /Yearly/ })).toBeTruthy()
     expect(screen.queryByText(/words, all on this/)).toBeNull()
+  })
+
+  // Free days of Plus, from coins or the feedback gift, over: said in place of how much is written.
+  it('says the free days of Plus have ended, once they have', async () => {
+    const words = Array.from({ length: 1200 }, (_, i) => `word${i}`).join(' ')
+    await items.create('page', { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: words }] }] })
+    await act(async () => void render(<App />))
+    await settle()
+    await act(async () => state.show!(true))
+    expect(await screen.findByText('Your days of Nib Plus have ended. Keep everything they opened with Nib Plus.')).toBeTruthy()
+    expect(screen.queryByText(/words, all on this/)).toBeNull()
+    expect(state.shown).toBe(1)
   })
 
   // Its look passed, then it waited on the App Store, and landed on whatever had come up meanwhile.

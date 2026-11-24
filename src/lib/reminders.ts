@@ -2,11 +2,15 @@ import { useEffect, useReducer, useRef } from 'react'
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import type { Item, Reminder, Repeat } from '../db/db'
 import * as items from '../db/items'
+import { readFolderSettings } from './folderSettings'
+import { under } from './folders'
 import { readJson, writeJson } from './jsonStorage'
+import { bookOf } from './manuscript'
 import { nativeApp } from './platform'
-import { titleOf } from './text'
+import { pending as stillPending, readSubmissions, submissionsOf, useSubmissions, type Piece, type Submissions } from './submissions'
 import { isTime } from './time'
 import { isLocked } from './vault'
+import { nameOf } from './fountain'
 
 /**
  * A reminder on a note: a notification at a time the writer picks. One per
@@ -25,6 +29,9 @@ import { isLocked } from './vault'
  * One can repeat: at the same hour each day, week, month or year. The note
  * keeps when it first rang and how it repeats; when it comes next is worked
  * out from those (`nextAt`), the way the device's own calendar does it.
+ *
+ * And a submission's follow-up (lib/submissions), kept in step the same way:
+ * on its day, in the morning, while what was sent is still waiting.
  */
 
 interface NibReminders {
@@ -53,6 +60,18 @@ export const LOCKED_REMINDER = 'A locked note'
 
 /** The daily reminder's ids among the device's (lib/dailyReminder): this, then a day. Never a note's, and not this file's to keep. */
 export const DAILY = 'daily-'
+
+/** A submission's follow-up's id among the reminders: this, then the submission's. Never a note's. */
+export const FOLLOW_UP = 'follow-'
+/** The hour a follow-up rings on its day. */
+const FOLLOW_UP_HOUR = 9
+
+/** What a tapped follow-up is for, by its notification's id: the piece, or `gone` with its submission. Null if it isn't a follow-up. */
+export function followedUp(id: string, submissions: Submissions = readSubmissions()): Piece | 'gone' | null {
+  if (!id.startsWith(FOLLOW_UP)) return null
+  const submission = submissions[id.slice(FOLLOW_UP.length)]
+  return submission && !('gone' in submission) ? submission.piece : 'gone'
+}
 
 export class ReminderError extends Error {
   readonly reason: 'denied' | 'past' | 'failed'
@@ -117,7 +136,7 @@ export function reminderOf(item: Item | undefined, now = Date.now()): number | u
 }
 
 /** What its notification says: its title, and never a locked note's. */
-const saidOf = (item: Item) => (isLocked(item) ? LOCKED_REMINDER : titleOf(item.body))
+const saidOf = (item: Item) => (isLocked(item) ? LOCKED_REMINDER : nameOf(item))
 
 /** A notification a device is to have waiting: `at` its next time, and `repeat` if it's to come round by itself from there. */
 type Ring = { id: string; at: number; title: string; repeat?: Repeat }
@@ -147,8 +166,35 @@ function ringFor(item: Item, now: number): Ring | undefined {
 }
 
 /**
+ * The follow-ups to ring (`ring`): each submission still waiting, or asked for
+ * more, on its follow-up day at nine, while that's still to come, saying
+ * where it went and what, a locked note's title never. One whose piece isn't
+ * in `documents` (the library out of the trash), or is a book with no page
+ * there, rings for nothing. `pending`: every one still waiting with a day, past or to come, so
+ * one snoozed here is kept.
+ */
+export function followUpsOf(submissions: Submissions, documents: Item[], now: number): { ring: Ring[]; pending: string[] } {
+  const byId = new Map(documents.map((item) => [item.id, item]))
+  const ring: Ring[] = []
+  const pending: string[] = []
+  for (const one of submissionsOf(submissions)) {
+    if (!one.followUp || !stillPending(one)) continue
+    pending.push(FOLLOW_UP + one.id)
+    const [year, month, day] = one.followUp.split('-').map(Number)
+    const at = new Date(year, month - 1, day, FOLLOW_UP_HOUR).getTime()
+    const document = 'document' in one.piece ? byId.get(one.piece.document) : undefined
+    // A book with no page left in its folder, removed or all in the trash, is no piece to ring about.
+    const book = 'book' in one.piece ? one.piece.book : undefined
+    const about = book !== undefined ? documents.some((item) => item.folder && under(item.folder, book)) && bookOf(book, readFolderSettings()).title : document && saidOf(document)
+    if (at <= now || !about) continue
+    ring.push({ id: FOLLOW_UP + one.id, at, title: one.where ? `Follow up with ${one.where} about ${about}` : `Follow up about ${about}` })
+  }
+  return { ring, pending }
+}
+
+/**
  * What this device has to do for its notifications to be those of
- * `documents`, the library out of the trash: ring for each reminder still to
+ * `documents`, the library out of the trash, and of `followUps`: ring for each reminder still to
  * come that it isn't waiting to ring as it is now (another time, another
  * title, or repeating another way), and cancel what it's waiting to ring for
  * anything else: a reminder taken off, a note in the trash or gone. The daily
@@ -156,11 +202,14 @@ function ringFor(item: Item, now: number): Ring | undefined {
  * a reminder, though that one's time has passed; cancelling a note's cancels
  * both.
  */
-export function reminderPlan(documents: Item[], waiting: Waiting[], now: number): { ring: Ring[]; cancel: string[] } {
-  const wanted = new Map(documents.flatMap((item) => { const ring = ringFor(item, now); return ring ? [[item.id, ring] as const] : [] }))
+export function reminderPlan(documents: Item[], waiting: Waiting[], now: number, followUps: { ring: Ring[]; pending: string[] } = { ring: [], pending: [] }): { ring: Ring[]; cancel: string[] } {
+  const wanted = new Map([
+    ...documents.flatMap((item) => { const ring = ringFor(item, now); return ring ? [[item.id, ring] as const] : [] }),
+    ...followUps.ring.map((ring) => [ring.id, ring] as const),
+  ])
   const mine = waiting.filter((one) => !one.id.startsWith(DAILY) && !one.snoozed)
   const as = new Map(mine.map((one) => [one.id, one]))
-  const reminded = new Set(documents.filter((item) => item.reminder).map((item) => item.id))
+  const reminded = new Set([...documents.filter((item) => item.reminder).map((item) => item.id), ...followUps.pending])
   // The device says its times to the second.
   const waited = (one: Ring) => { const has = as.get(one.id); return has !== undefined && Math.abs(has.at - one.at) < 1000 && has.title === one.title && asRepeat(has.repeat) === one.repeat }
   return {
@@ -275,7 +324,8 @@ export function keepReminders(documents: Item[]): Promise<void> {
         const taken = new Map(found.map((one) => [one.id, one.at]))
         library = library.map((item) => (taken.has(item.id) ? { ...item, reminder: { at: taken.get(item.id)! } } : item))
       }
-      const plan = reminderPlan(library, reminders, Date.now())
+      const now = Date.now()
+      const plan = reminderPlan(library, reminders, now, followUpsOf(readSubmissions(), library, now))
       if (plan.cancel.length) await reminderPlugin.cancel({ ids: plan.cancel })
       const wasSilent = silent
       silent = false
@@ -307,21 +357,24 @@ export function keepReminders(documents: Item[]): Promise<void> {
 export function useKeptReminders(listed: Item[], archived: Item[], ready: boolean) {
   // What the last look was given of the reminders, and when.
   const looked = useRef({ said: '', at: -Infinity })
+  // The follow-ups too, here or from another device (lib/submissions).
+  const submissions = useSubmissions()
   useEffect(() => {
     if (!ready) return
     const documents = [...listed, ...archived]
+    const said = () => saidOfAll(documents) + JSON.stringify(submissions)
     const keep = () => {
       // Only in front: what an earlier Nib left is written into its notes, and a write as Nib goes to the back is cut off.
       if (document.visibilityState !== 'visible') return
-      looked.current = { said: saidOfAll(documents), at: Date.now() }
+      looked.current = { said: said(), at: Date.now() }
       void keepReminders(documents)
     }
     // The library changes with every save, and nearly none changes a reminder: the device isn't asked again for
     // those, twice each, but for one that does, and every so often besides, for a time that has come round.
-    if (saidOfAll(documents) !== looked.current.said || Date.now() - looked.current.at >= LOOK_MS) keep()
+    if (said() !== looked.current.said || Date.now() - looked.current.at >= LOOK_MS) keep()
     document.addEventListener('visibilitychange', keep)
     return () => document.removeEventListener('visibilitychange', keep)
-  }, [listed, archived, ready])
+  }, [listed, archived, ready, submissions])
 }
 
 /** Re-renders when what this device will ring changes. */

@@ -231,10 +231,21 @@ describe('captureBody', () => {
 })
 
 describe('linkAction', () => {
-  it('knows the two links a widget or Shortcut can send, and nothing else', () => {
+  it('knows the links a widget or Shortcut can send, and nothing else', () => {
     expect(linkAction('nib://new-note')).toBe('new-note')
     expect(linkAction('nib://new-page')).toBe('new-page')
+    expect(linkAction('nib://plus')).toBe('plus')
+    expect(linkAction('nib://sprint/25')).toEqual({ sprint: 25 })
+    expect(linkAction('nib://sprint/45')).toEqual({ sprint: 45 })
+    for (const odd of ['nib://sprint/20', 'nib://sprint/', 'nib://sprint/25/x', 'nib://sprint/1000']) expect(linkAction(odd)).toBeNull()
     expect(linkAction('nib://delete-everything')).toBeNull()
     expect(linkAction('https://new-note')).toBeNull()
+  })
+
+  it('opens a document by its id, or a book by its folder’s whole name, and nothing that isn’t one', () => {
+    expect(linkAction(`nib://open/${ID}`)).toEqual({ open: ID })
+    expect(linkAction(`nib://book/${encodeURIComponent('Novel/Part 2')}`)).toEqual({ book: 'Novel/Part 2' })
+    expect(linkAction(`nib://book/${encodeURIComponent('Café')}`)).toEqual({ book: 'Café' })
+    for (const odd of ['nib://open/', 'nib://open/a b', `nib://open/${ID}/more`, 'nib://book/', 'nib://book/Novel/Part 2', 'nib://book/%E0%A4%A', `nib://book/${encodeURIComponent('   ')}`]) expect(linkAction(odd)).toBeNull()
   })
 })

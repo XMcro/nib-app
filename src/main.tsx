@@ -21,6 +21,7 @@ import { nativeApp } from './lib/platform.ts'
 import { keepStoragePersistent } from './lib/storage.ts'
 import { followLargerText } from './lib/textSize.ts'
 import { installTrustedTypes } from './lib/trustedTypes.ts'
+import { warmUp } from './lib/pictureText.ts'
 
 // Before anything can turn text into HTML: the page's policy wants one named (lib/trustedTypes).
 installTrustedTypes()
@@ -57,10 +58,12 @@ if (nativeApp) {
 keepFilesSwept()
 
 // A launch, for what Nib asks at which (lib/feedback); and any finished day's counts, for a writer who said yes.
+// And Vision readied a little after, so the first picture pasted isn't kept waiting for its words (lib/pictureText).
 if (nativeApp) {
   countLaunch()
   count('opened')
   void sendCounts()
+  warmUp()
 }
 
 createRoot(document.getElementById('root')!).render(

@@ -17,7 +17,7 @@ vi.mock('@capacitor/core', async (importOriginal) => ({
   registerPlugin: () => store,
 }))
 
-const { usePlus } = await import('./plus')
+const { usePlus, useEntitled } = await import('./plus')
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -70,3 +70,49 @@ describe('usePlus', () => {
   })
 })
 
+// Days of Plus's features from coins or the feedback gift, ending (lib/upsell endingNotice).
+describe('useEntitled', () => {
+  const HOUR = 60 * 60 * 1000
+  const notMine = { active: false }
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], now: new Date(2026, 10, 20, 9, 0) })
+  })
+
+  it('tells the day before free days end, and when they have', () => {
+    const until = new Date(2026, 10, 21, 12, 0).getTime()
+    const setNotice = vi.fn()
+    const { result } = renderHook(() => useEntitled(notMine, true, until, setNotice))
+    expect(result.current.features).toBe(true)
+    act(() => vi.advanceTimersByTime(3 * HOUR - 1))
+    expect(setNotice).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(setNotice).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/^Your days of Nib Plus end tomorrow at 12:00\sPM\.$/))
+    act(() => vi.advanceTimersByTime(24 * HOUR))
+    expect(setNotice).toHaveBeenLastCalledWith('Your days of Nib Plus have ended.')
+    expect(result.current.features).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('tells at once when Nib opens in the last day, and only once', () => {
+    const until = new Date(2026, 10, 20, 17, 0).getTime()
+    const setNotice = vi.fn()
+    const first = renderHook(() => useEntitled(notMine, true, until, setNotice))
+    act(() => vi.advanceTimersByTime(0))
+    expect(setNotice).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/^Your days of Nib Plus end today at 5:00\sPM\.$/))
+    first.unmount()
+    renderHook(() => useEntitled(notMine, true, until, setNotice))
+    act(() => vi.advanceTimersByTime(HOUR))
+    expect(setNotice).toHaveBeenCalledOnce()
+    vi.useRealTimers()
+  })
+
+  it('says nothing of them to a subscriber', () => {
+    const setNotice = vi.fn()
+    renderHook(() => useEntitled({ active: true }, true, new Date(2026, 10, 20, 17, 0).getTime(), setNotice))
+    act(() => vi.advanceTimersByTime(24 * HOUR))
+    expect(setNotice).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+})

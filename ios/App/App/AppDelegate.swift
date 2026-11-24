@@ -233,18 +233,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 // Billing without Plus, as in the palette.
                 UIMenu(options: .displayInline, children: [
                     item("Midnight Blue", "theme-midnight-blue"),
-                    item("Gruvbox Dark", "theme-gruvbox-dark"),
-                    item("Green Olive", "theme-green-olive"),
                     item("Clean Blue", "theme-clean-blue"),
-                    item("Gruvbox Light", "theme-gruvbox-light"),
-                    item("Pastel Pink", "theme-pastel-pink"),
                     item("Cream Soda", "theme-cream-soda"),
                 ]),
                 UIMenu(options: .displayInline, children: [
+                    item("Gruvbox Dark", "theme-gruvbox-dark"),
+                    item("Green Olive", "theme-green-olive"),
+                    item("Gruvbox Light", "theme-gruvbox-light"),
+                    item("Pastel Pink", "theme-pastel-pink"),
                     item("Purple Green", "theme-purple-green"),
                     item("Alien Pink", "theme-alien-pink"),
                     item("drcl", "theme-drcl"),
                     item("Nib Plus", "theme-nib-plus"),
+                    item("Vellum", "theme-vellum"),
+                    item("Sage", "theme-sage"),
+                    item("Lilac", "theme-lilac"),
+                    item("Ember", "theme-ember"),
+                    item("Tide", "theme-tide"),
+                    item("Merlot", "theme-merlot"),
                 ]),
             ]),
         ]), atStartOfMenu: .view)

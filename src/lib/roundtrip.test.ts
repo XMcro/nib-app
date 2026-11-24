@@ -145,6 +145,22 @@ describe('markdown round trip', () => {
     expect(note?.attrs?.text).toBe('the source is "X" & Y')
   })
 
+  // Two line ends in a row ended the paragraph it was in: the footnote came back as none.
+  it('keeps a footnote with an empty line in its text', () => {
+    const text = 'first line\n\nsecond\r\nthird'
+    const body: JSONContent = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'claim' }, { type: 'footnote', attrs: { text } }] }] }
+    const back = markdownToBody(toMarkdown(body), 'note')
+    expect(back.content).toHaveLength(1)
+    expect(back.content?.[0].content?.[1]).toMatchObject({ type: 'footnote', attrs: { text } })
+  })
+
+  // Only a body not made in the editor has code that's bold or a link as well: the other mark went inside the backticks.
+  it('writes code that is bold or a link too with the code innermost', () => {
+    const marked = (...marks: object[]) => toMarkdown({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x*y', marks }] }] } as JSONContent)
+    expect(marked({ type: 'bold' }, { type: 'code' })).toBe('**`x*y`**')
+    expect(marked({ type: 'link', attrs: { href: 'https://example.com' } }, { type: 'code' })).toBe('[`x*y`](https://example.com)')
+  })
+
   // Deliberate: a footnote is an aside, so its text stays out of the title, the
   // list preview and the word count, all of which read from plainText.
   it('keeps footnote text out of the visible prose', () => {

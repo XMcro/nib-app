@@ -5,6 +5,8 @@ import { useKeyboard } from '../lib/keyboard'
 import { useLook } from '../lib/look'
 import { AlignIcon, ListIcon, TextGlyph } from './FormatGlyph'
 import { formatById, formatsFor, type Format } from './formats'
+import { ELEMENT_NAMES, SETTABLE, type Element, type Settable } from '../lib/fountain'
+import { screenplayKey } from './Screenplay'
 import { scrollerOf } from './scroller'
 import { useEditorPlugin } from './useEditorPlugin'
 
@@ -16,6 +18,15 @@ const ALIGN = ['format-align-left', 'format-align-center', 'format-align-right',
 const TABLE_EDITS = ['table-add-row', 'table-add-column', 'table-delete-row', 'table-delete-column', 'table-delete']
 
 const clearOfBar = new PluginKey('clearOfBar')
+
+/** The elements' names on the bar, short enough for a phone. */
+const SHORT: Record<Settable, string> = { scene: 'Scene', action: 'Action', character: 'Character', parenthetical: '( )', dialogue: 'Dialogue', transition: 'Transition' }
+
+/** What the caret's line in a screenplay is, as the bar lights it. */
+function lineElement(editor: Editor): Element | null {
+  const { $from } = editor.state.selection
+  return $from.depth >= 1 ? (screenplayKey.getState(editor.state)?.lines[$from.index(0)]?.element ?? null) : null
+}
 
 /** How long after a finger lifts from the text the bar can be pressed again. */
 const SETTLE_MS = 100
@@ -32,8 +43,11 @@ const SETTLE_MS = 100
  *
  * Every press is kept from taking focus (onMouseDown), or the editor would
  * blur, the keyboard would drop, and the bar would vanish under the finger.
+ *
+ * In a screenplay (editor/Screenplay) its row is the elements instead, the
+ * caret's line's lit, and Aa has only the text's styles.
  */
-export function FormatBar({ editor, page }: { editor: Editor; page: boolean }) {
+export function FormatBar({ editor, page, screenplay = false }: { editor: Editor; page: boolean; screenplay?: boolean }) {
   const [focused, setFocused] = useState(editor.isFocused)
   const [open, setOpen] = useState(false)
   const { over, sliding } = useKeyboard()
@@ -179,6 +193,7 @@ export function FormatBar({ editor, page }: { editor: Editor; page: boolean }) {
     selector: ({ editor }) => Object.fromEntries(formats.map((format) => [format.id, format.active(editor)])),
   })
 
+  const element = useEditorState({ editor, selector: ({ editor }) => (screenplay ? lineElement(editor) : null) })
   const offered = (ids: string[]) => ids.filter((id) => formats.some((format) => format.id === id)).map((id) => formatById(id)!)
   const press = (format: Format) => format.run(editor)
 
@@ -198,7 +213,16 @@ export function FormatBar({ editor, page }: { editor: Editor; page: boolean }) {
       // keyboard never shows the text through a gap.
       className={`${motion} fixed inset-x-0 bottom-0 z-20 border-t border-line bg-shell pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] after:absolute after:inset-x-0 after:top-full after:h-[400px] after:bg-shell after:content-['']`}
     >
-      {open && (
+      {open && screenplay && (
+        <div className="flex gap-1 border-b border-line px-2 py-2">
+          {offered(TEXT).map((format) => (
+            <Square key={format.id} format={format} active={active[format.id]} onPress={press}>
+              <TextGlyph id={format.id} />
+            </Square>
+          ))}
+        </div>
+      )}
+      {open && !screenplay && (
         <div className="flex flex-col gap-1.5 border-b border-line px-2 py-2">
           <div className="flex flex-wrap gap-1">
             {offered(PARAGRAPH).map((format) => (
@@ -247,7 +271,19 @@ export function FormatBar({ editor, page }: { editor: Editor; page: boolean }) {
         {/* Lists, unless Customize chose others. More than fit a small
             iPhone scroll sideways rather than push Hide keyboard off. */}
         <div className="flex min-w-0 gap-1 overflow-x-auto">
-          {offered(keyboardBar).map((format) => (
+          {screenplay &&
+            SETTABLE.map((one) => (
+              <button
+                key={one}
+                aria-label={ELEMENT_NAMES[one]}
+                aria-pressed={element === one}
+                onClick={() => editor.chain().focus().setLineElement(one).run()}
+                className={`h-11 shrink-0 cursor-pointer rounded-md px-2.5 text-[14px] whitespace-nowrap ${element === one ? 'bg-item-active text-ink' : 'text-muted'}`}
+              >
+                {SHORT[one]}
+              </button>
+            ))}
+          {!screenplay && offered(keyboardBar).map((format) => (
             <Square key={format.id} format={format} active={active[format.id]} onPress={press}>
               {TEXT.includes(format.id) ? <TextGlyph id={format.id} /> : <ListIcon id={format.id} />}
             </Square>

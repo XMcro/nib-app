@@ -286,6 +286,50 @@ describe('items', () => {
     expect(await items.get(never)).not.toHaveProperty('position')
   })
 
+  it('keeps where a document went on each blog, one for each, without it looking edited', async () => {
+    const id = await items.create('note', body('Salt and weed'))
+    const before = (await items.get(id))!
+    const post = (site: string, id: string) => ({ site, id, url: `${site}/?p=${id}`, edit: `${site}/edit/${id}`, pictures: {} })
+    await items.setPosted(id, post('https://blog.example', '42'))
+    await items.setPosted(id, post('https://other.example', '7'))
+    await items.setPosted(id, post('https://blog.example', '43'))
+    const after = (await items.get(id))!
+    expect(after.posted).toEqual([post('https://other.example', '7'), post('https://blog.example', '43')])
+    expect(after.rev).toBe((before.rev ?? 0) + 3)
+    expect([after.version, after.updatedAt]).toEqual([before.version, before.updatedAt])
+    // A copy is a new document, with no post of its own yet.
+    expect((await items.get((await items.duplicate(id))!))!.posted).toBeUndefined()
+  })
+
+  it('makes a page a screenplay, never a note, and keeps one a screenplay in a copy, a template and a page from it', async () => {
+    const id = await items.create('page', body('INT. HOUSE - DAY'), { screenplay: true })
+    expect((await items.get(id))?.screenplay).toBe(true)
+    expect(await items.get(await items.create('note', body('INT.'), { screenplay: true }))).not.toHaveProperty('screenplay')
+    expect(await items.get(await items.create('page', body('A page')))).not.toHaveProperty('screenplay')
+    expect((await items.get((await items.duplicate(id))!))?.screenplay).toBe(true)
+    const template = (await items.saveAsTemplate(id))!
+    expect((await items.get(template))?.screenplay).toBe(true)
+    expect((await items.get((await items.fromTemplate(template))!))?.screenplay).toBe(true)
+    await items.createMany([{ kind: 'page', body: body('EXT. BEACH'), id: 'imported', screenplay: true }])
+    expect((await items.get('imported'))?.screenplay).toBe(true)
+  })
+
+  it('gives a chapter its summary and status on the corkboard without it looking edited', async () => {
+    const id = await items.create('page', body('Chapter one'), { folder: 'Novel' })
+    const before = (await items.get(id))!
+    await items.setSummary(id, '  Mara finds\nthe logbook. ')
+    await items.setStatus(id, 'revised')
+    let after = (await items.get(id))!
+    expect(after).toMatchObject({ summary: 'Mara finds the logbook.', status: 'revised' })
+    expect(after.rev).toBe((before.rev ?? 0) + 2)
+    expect([after.version, after.updatedAt]).toEqual([before.version, before.updatedAt])
+    // Back to a draft, and the summary emptied: both taken off, as null.
+    await items.setStatus(id, 'draft')
+    await items.setSummary(id, ' ')
+    after = (await items.get(id))!
+    expect(after).toMatchObject({ summary: null, status: null })
+  })
+
   it('creates a record with a client-generated id and version 1', async () => {
     const id = await items.create('note', body('one'))
     const saved = await items.get(id)
@@ -567,6 +611,23 @@ describe('the vault', () => {
     shut()
   })
 
+  it('takes a chapter’s summary off as it locks it, and gives a locked one none, as only the text is sealed', async () => {
+    const id = await items.create('page', body('Chapter one'), { folder: 'Novel' })
+    await items.setSummary(id, 'The secret is in the logbook.')
+    await items.setStatus(id, 'done')
+    await vault.openVault('harbour lights', [])
+    await items.lock(id, body('Chapter one'))
+    let locked = (await items.get(id))!
+    expect(locked.summary).toBeNull()
+    expect(JSON.stringify(locked)).not.toContain('logbook')
+    // Its status says nothing of what's in it, and stays.
+    expect(locked.status).toBe('done')
+    await items.setSummary(id, 'Written while locked')
+    locked = (await items.get(id))!
+    expect(locked.summary).toBeNull()
+    shut()
+  })
+
   it('seals each save of a locked document, and keeps no history of it', async () => {
     const id = await items.create('page', body('draft'))
     await vault.openVault('harbour lights', [])
@@ -650,6 +711,43 @@ describe('the vault', () => {
     await items.update(id, body('a locked edit synced in'))
     await expect(items.unlock(id, body('synced in meanwhile'), locked)).rejects.toBeInstanceOf(items.ChangedSince)
     expect(await vault.unseal(id, (await items.get(id))!.vault!)).toEqual(body('a locked edit synced in'))
+    shut()
+  })
+
+  // A save reads the document, then writes it. Locked in between, by sync or another window, the text was
+  // written into the locked document in the clear, where search and sync read it, and into its history.
+  it('refuses a save of unlocked text into a document locked between its read and its write', async () => {
+    const id = await items.create('note', body('draft'))
+    await vault.openVault('harbour lights', [])
+    await items.lock(id, body('draft'))
+    const locked = (await items.get(id))!.vault
+    await items.unlock(id, body('draft'))
+    const seeded = (await items.get(id))!.version
+    const kept = await db.revisions.where('itemId').equals(id).count()
+    const saving = items.update(id, body('typed as it locked'), { expectedVersion: seeded, wasLocked: false })
+    // As sync puts another device's lock: asked for after the save's read, so written before its write.
+    await db.items.update(id, { vault: locked, body: vault.LOCKED_BODY, version: seeded + 1 })
+    await expect(saving).rejects.toBeInstanceOf(items.LockedElsewhere)
+    const stored = (await items.get(id))!
+    expect(stored.body).toEqual(vault.LOCKED_BODY)
+    expect(await vault.unseal(id, stored.vault!)).toEqual(body('draft'))
+    expect(await db.revisions.where('itemId').equals(id).count()).toBe(kept)
+    shut()
+  })
+
+  // The other way: sealing takes a moment, and a document unlocked in it was shut again over the other device's words.
+  it('saves into a document unlocked between its read and its write as the unlocked one it is', async () => {
+    const id = await items.create('note', body('draft'))
+    await vault.openVault('harbour lights', [])
+    await items.lock(id, body('draft'))
+    const seeded = (await items.get(id))!.version
+    const saving = items.update(id, body('typed as it opened'), { expectedVersion: seeded, wasLocked: true })
+    await db.items.update(id, { vault: null, body: body('opened on the iPhone'), version: seeded + 1 })
+    await saving
+    const stored = (await items.get(id))!
+    expect(stored.vault).toBeNull()
+    expect(stored.body).toEqual(body('typed as it opened'))
+    expect((await revisions.list(id)).map((kept) => kept.body)).toContainEqual(body('opened on the iPhone'))
     shut()
   })
 

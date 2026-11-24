@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Nothing shared with the app: the widgets only open links. A widget that reads the inbox would join group.app.nib.ios. -->
+<!-- The group the app leaves the widgets what they show in (ios/App/App/NibSnapshot.swift): today's words, the goal, the books, the pinned and recent notes. -->
 <plist version="1.0">
-<dict/>
+<dict>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.app.nib.ios</string>
+	</array>
+</dict>
 </plist>

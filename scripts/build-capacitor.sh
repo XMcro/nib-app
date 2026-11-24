@@ -10,7 +10,20 @@ out="$PWD/ios/App/capacitor-swift-pm"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
+# The commit each version's tag named when it was looked at here. A tag can be moved, and the check below is of
+# the sources only: the Xcode project that builds them, and any script in it, comes from the clone unchecked.
+# For a new version: read what changed upstream, then add its line, from
+#   git ls-remote https://github.com/ionic-team/capacitor.git "refs/tags/<version>^{}"
+case "$version" in
+  8.5.2) commit=5e0f67871994fec94e413cd0993dc6cd495431f7 ;;
+  *) echo "No commit is written down here for Capacitor $version: add it to scripts/build-capacitor.sh." >&2; exit 1 ;;
+esac
+
 git clone --quiet --depth 1 --branch "$version" https://github.com/ionic-team/capacitor.git "$work/src"
+if [ "$(git -C "$work/src" rev-parse HEAD)" != "$commit" ]; then
+  echo "Capacitor's $version tag is no longer the commit written down here ($commit). Not built." >&2
+  exit 1
+fi
 # The source must be what npm installed, or the app and its JavaScript
 # disagree. Cordova's too: it ships, and is signed, as well.
 diff -rq "$work/src/ios/Capacitor/Capacitor" node_modules/@capacitor/ios/Capacitor/Capacitor >/dev/null
@@ -31,6 +44,7 @@ for scheme in Cordova Capacitor; do
   # prebuilt frameworks they must be signed, or App Store Connect marks the
   # build Invalid Binary (ITMS-91065). Ionic's published copies are signed;
   # these are ours, so they carry our signature.
-  codesign --timestamp --sign "Apple Development" "$out/$scheme.xcframework"
+  # NIB_SIGN_AS names the certificate where there's more than one "Apple Development" to choose from.
+  codesign --timestamp --sign "${NIB_SIGN_AS:-Apple Development}" "$out/$scheme.xcframework"
 done
 echo "Capacitor $version built for iOS, the simulator and Mac Catalyst."

@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { db, type Item } from '../db/db'
-import { arrange, asFolderSettings, FOLDERS_CHANGED, mergeFolderSettings, readFolderSettings, replaceFolderSettings, setOwn, takeInFolderSettings } from './folderSettings'
+import { arrange, asFolderSettings, castOf, FOLDERS_CHANGED, mergeFolderSettings, readFolderSettings, replaceFolderSettings, setCast, setOwn, takeInFolderSettings } from './folderSettings'
 import { libraryOf, lookOf, removeFolder, renameFolder, treeOf } from './folders'
 
 const doc = (id: string, folder: string): Item => ({ id, kind: 'note', body: { type: 'doc', content: [] }, version: 1, createdAt: 1, updatedAt: 1, folder, rev: 1 })
@@ -10,6 +10,8 @@ const doc = (id: string, folder: string): Item => ({ id, kind: 'note', body: { t
 const laidOut = (items: Item[]) => treeOf(libraryOf(items, undefined, readFolderSettings())).flatMap(({ folder, inside }) => [folder.name, ...inside.map((one) => one.name)])
 
 beforeEach(async () => {
+  // Every folder gone first: a book's characters and places outlast a backup without them (replaceFolderSettings).
+  replaceFolderSettings(Object.fromEntries(Object.keys(readFolderSettings()).map((name) => [name, { at: 1, gone: true as const }])))
   replaceFolderSettings({})
   await db.items.clear()
 })
@@ -230,5 +232,75 @@ describe('a folder renamed, moved or removed', () => {
     window.removeEventListener(FOLDERS_CHANGED, said)
     expect(readFolderSettings()).toEqual({})
     expect(said).not.toHaveBeenCalled()
+  })
+})
+
+describe('a book’s characters and places', () => {
+  const mara = { id: 'mara', kind: 'character' as const, name: 'Mara', also: ['Mrs Lee'], line: 'Keeps the light.' }
+  const harbour = { id: 'harbour', kind: 'place' as const, name: 'The harbour', also: [] }
+
+  it('are none till set, then kept with the book’s folder and said for sync; none set is kept as none', () => {
+    expect(castOf(readFolderSettings(), 'Novel')).toEqual([])
+    const said = vi.fn()
+    window.addEventListener(FOLDERS_CHANGED, said)
+    setCast('Novel', [mara, harbour])
+    window.removeEventListener(FOLDERS_CHANGED, said)
+    expect(castOf(readFolderSettings(), 'novel')).toEqual([mara, harbour])
+    expect(said).toHaveBeenCalledOnce()
+    setCast('Novel', [])
+    expect(castOf(readFolderSettings(), 'Novel')).toEqual([])
+    expect(readFolderSettings().novel.castAt).toBeTypeOf('number')
+  })
+
+  it('go by when they were changed, not the folder: one without them, from a Nib before them, leaves them as they are', () => {
+    const here = { novel: { at: 5, cast: [mara], castAt: 5 } }
+    const olderNib = { novel: { at: 9, color: 'teal' } }
+    const both = { novel: { at: 9, color: 'teal', cast: [mara], castAt: 5 } }
+    expect(mergeFolderSettings(here, olderNib)).toEqual(both)
+    expect(mergeFolderSettings(olderNib, here)).toEqual(both)
+    // Changed later on the other device, though the folder was changed last here: theirs.
+    expect(mergeFolderSettings({ novel: { at: 9, icon: 'book', cast: [mara], castAt: 2 } }, { novel: { at: 3, cast: [harbour], castAt: 7 } })).toEqual({ novel: { at: 9, icon: 'book', cast: [harbour], castAt: 7 } })
+  })
+
+  it('follow their folder through a rename made by a Nib from before them, which sends the new name without them', () => {
+    const here = { novel: { at: 5, title: 'The Keeper', cast: [mara], castAt: 5 }, 'novel/part 1': { at: 4, icon: 'book', cast: [harbour], castAt: 4 } }
+    // As 1.10.12's renameSettings leaves them: the old names gone and the new ones with the rest, at one moment.
+    const olderNib = { novel: { at: 9, gone: true as const }, 'novel/part 1': { at: 9, gone: true as const }, book: { at: 9, title: 'The Keeper' }, 'book/part 1': { at: 9, icon: 'book' } }
+    const both = mergeFolderSettings(here, olderNib)
+    expect(both.book).toEqual({ at: 9, title: 'The Keeper', cast: [mara], castAt: 5 })
+    expect(both['book/part 1']).toEqual({ at: 9, icon: 'book', cast: [harbour], castAt: 4 })
+    expect(both.novel).toEqual({ at: 9, gone: true })
+    // The one new name there is, whatever else was changed with it.
+    expect(mergeFolderSettings({ novel: { at: 5, cast: [mara], castAt: 5 } }, { novel: { at: 9, gone: true }, book: { at: 9, color: 'teal' } }).book).toMatchObject({ cast: [mara] })
+    // Removed, there's no new name: nothing is given them. And a rename older than what's here changes nothing.
+    expect(mergeFolderSettings({ novel: { at: 5, cast: [mara], castAt: 5 } }, { novel: { at: 9, gone: true }, other: { at: 3 } })).toEqual({ novel: { at: 9, gone: true }, other: { at: 3 } })
+    expect(mergeFolderSettings({ novel: { at: 12, cast: [mara], castAt: 5 } }, { novel: { at: 9, gone: true }, book: { at: 9 } }).novel).toMatchObject({ cast: [mara] })
+  })
+
+  it('outlast a backup without them, and are a backup’s own where it has them', () => {
+    setCast('Novel', [mara])
+    replaceFolderSettings({ novel: { at: 1, title: 'The Keeper' } })
+    expect(readFolderSettings().novel).toMatchObject({ title: 'The Keeper', cast: [mara] })
+    replaceFolderSettings({ novel: { at: 2, cast: [harbour], castAt: 3 } })
+    expect(castOf(readFolderSettings(), 'Novel')).toEqual([harbour])
+  })
+
+  it('go with the folder when it’s renamed, and not back to its old name from another device’s older copy', async () => {
+    await db.items.bulkAdd([doc('a', 'Novel'), doc('b', 'Novel/Part 1')])
+    setCast('Novel', [mara])
+    await renameFolder('Novel', 'Book')
+    expect(castOf(readFolderSettings(), 'Book')).toEqual([mara])
+    expect(castOf(readFolderSettings(), 'Novel')).toEqual([])
+    takeInFolderSettings({ novel: { at: 1, cast: [mara], castAt: 1 } })
+    expect(readFolderSettings().novel).toEqual({ at: expect.any(Number), gone: true })
+  })
+
+  it('are passed over when they aren’t a list of cards with a time', () => {
+    expect(asFolderSettings({ a: { at: 1, cast: 'Mara', castAt: 1 }, b: { at: 1, cast: [mara], castAt: -1 }, c: { at: 1, cast: [mara] }, d: { at: 1, cast: [mara, { id: 'x' }], castAt: 2 } })).toEqual({
+      a: { at: 1 },
+      b: { at: 1 },
+      c: { at: 1 },
+      d: { at: 1, cast: [mara], castAt: 2 },
+    })
   })
 })

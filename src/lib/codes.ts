@@ -1,8 +1,8 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js'
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js'
 import { fromBase64url } from '../../worker/base64'
-import { coinsMessage } from '../../worker/signing'
+import { coinsMessage, COINS_PUBLIC_KEY } from '../../worker/signing'
 import { coinRefusal, fingerprintInput, type CoinRefusal } from '../../worker/wire.mjs'
 import { SERVER } from './server'
 
@@ -23,7 +23,7 @@ export const fingerprintOf = (code: string) => bytesToHex(sha256(utf8ToBytes(fin
  * (worker/coins, COINS_SIGNING_KEY): coins are kept only with its signature,
  * so a proxy, or a code's coins written in by hand, gives nothing.
  */
-const SERVER_KEY = hexToBytes('d1f297a2eb39a454f2831e99d692c2590c87b4eb15eaa5742306e76f9f553e8f')
+const SERVER_KEY = fromBase64url(COINS_PUBLIC_KEY)
 
 const verified = new Map<string, boolean>()
 /** Whether `sig`, base64url, is the server's for a code's `coins` on `claim`. Each is checked once. */

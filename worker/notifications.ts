@@ -69,9 +69,16 @@ export async function handleNotification(request: Request, deps: NotificationDep
   if (PAID_TO.has(String(notification.notificationType))) {
     if (typeof transaction.expiresDate !== 'number') return refuse()
     const until = paidUntil(transaction.expiresDate, transaction.environment, (deps.now ?? Date.now)())
-    const paid = await deps.subscriber(subscription).paidTo(until, transaction.purchaseDate)
+    const subscriber = deps.subscriber(subscription)
+    const paid = await subscriber.paidTo(until, transaction.purchaseDate)
     const { libraries = [] } = (paid.status === 200 ? paid.body : {}) as { libraries?: string[] }
-    await Promise.all(libraries.map((id) => findLibrary(deps.library, id).paidTo(until, subscription)))
+    // One that's been deleted is let go of: deleted, a library tells only the subscriptions it then knew paid for
+    // it, and one refunded before that, or not reached, kept its id for as long as it renewed (the server audit of 2026-11-23).
+    await Promise.all(
+      libraries.map(async (id) => {
+        if (await findLibrary(deps.library, id).paidTo(until, subscription)) await subscriber.releaseLibrary(id)
+      }),
+    )
     return json(request, 200, { ok: true })
   }
   if (notification.notificationType === GIVEN_BACK) {

@@ -139,7 +139,13 @@ export const NibImage = Node.create({
 function sketchWidth(src: string): number | null {
   const prefix = 'data:image/png;base64,'
   if (!src.startsWith(prefix)) return null
-  const header = atob(src.slice(prefix.length, prefix.length + 32))
+  let header: string
+  try {
+    header = atob(src.slice(prefix.length, prefix.length + 32))
+  } catch {
+    // Not base64 after all, from a backup made by hand: the picture's own width will do, where throwing here was the page not opening.
+    return null
+  }
   const pixels = [16, 17, 18, 19].reduce((width, at) => width * 256 + header.charCodeAt(at), 0)
   return pixels > 0 ? Math.round(pixels / 2) : null
 }

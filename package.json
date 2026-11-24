@@ -1,7 +1,8 @@
 {
   "name": "nib",
   "private": true,
-  "version": "1.10.12",
+  "version": "1.10.15",
+  "deployFrom": "more-importers",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,6 +18,8 @@
     "release:web": "node scripts/release-web.mjs",
     "coin-code": "node scripts/coin-code.mjs",
     "counts": "node scripts/counts.mjs",
+    "set-alarms": "node scripts/set-alarms.mjs",
+    "sweeps": "node scripts/sweeps.mjs",
     "dev:worker": "npm run build:reader && wrangler dev",
     "postinstall": "node scripts/local-capacitor.mjs",
     "cap:sync": "cap sync ios && node scripts/local-capacitor.mjs"

@@ -188,6 +188,48 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>app.nib.import.fountain</string>
+			<key>UTTypeDescription</key>
+			<string>Fountain screenplay</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>fountain</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-fountain</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>app.nib.import.final-draft</string>
+			<key>UTTypeDescription</key>
+			<string>Final Draft script</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>fdx</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-final-draft</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>

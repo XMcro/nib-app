@@ -4,9 +4,10 @@ import { sha256 } from './http'
 import { Library, libraryRequests, type Region } from './library'
 import { bodyHash, signedMessage } from './signing'
 import { FreeQuota, quotaRequests } from './quota'
-import { MAX_LIBRARIES, Subscriber, subscriberRequests } from './subscriber'
+import { MAX_LIBRARIES, NEW_LIBRARIES_PER_DAY, Subscriber, subscriberRequests } from './subscriber'
 import { BAD_PUSHES_PER_NETWORK, handleSync, type Deps } from './sync'
 import { memoryFiles, sqlite } from './testing'
+import { MAX_PADDED } from './wire.mjs'
 
 const ID = '0123456789abcdef0123456789abcdef'
 const SECRET = 'A'.repeat(43)
@@ -93,6 +94,23 @@ describe('sync API', () => {
     expect((await call('/v1/changes', post({ nope: true }))).status).toBe(400)
   })
 
+  // A pattern that looped over the payload four characters at a time ran the engine out of stack past some 4.47 million
+  // characters, and threw: any document over 2 MiB, padded to 4 (src/sync/crypto `padded`), ended its push in a 500,
+  // which the app doesn't skip, so that device sent nothing more (the server audit of 2026-11-23).
+  it('takes a record padded to 4 MiB, and one padded to the most a record is', async () => {
+    const call = server()
+    await call('/v1/library', post({ jws: 'signed' }))
+    // A seal's length in base64: its padded bytes, an IV of 12 and a tag of 16.
+    const sealed = (padded: number) => 'QUJD'.repeat(Math.ceil((padded + 12 + 16) / 3))
+    for (const [n, padded] of [4 * 1024 * 1024, MAX_PADDED].entries()) {
+      const pushed = await call('/v1/changes', post({ records: [{ k: KEY, ...(n > 0 && { b: n }), p: sealed(padded) }] }))
+      expect(pushed.status, `padded to ${padded}`).toBe(200)
+    }
+    // And still only base64.
+    expect((await call('/v1/changes', post({ records: [{ k: KEY, b: 2, p: `${sealed(4 * 1024 * 1024)}\u00e9` }] }))).status).toBe(400)
+    expect((await call('/v1/changes', post({ records: [{ k: KEY, b: 2, p: `${sealed(4 * 1024 * 1024)}A` }] }))).status).toBe(400)
+  })
+
   it('deletes everything on request, and another device renewing does not bring it back', async () => {
     const call = server()
     await call('/v1/library', post({ jws: 'signed' }))
@@ -105,6 +123,35 @@ describe('sync API', () => {
   // One receipt paid for any number of libraries.
   // The receipt took the idle library's place afresh, the wrong code was refused, and the refusal gave the place
   // back by deleting it: the library stayed paid for, on no subscription's list.
+  // Only the subscription that sent its receipt last was told: another that paid, a second Apple ID in the house,
+  // kept the deleted library's id for good and its place among its five for sixty days (the server audit of 2026-11-23).
+  it('frees a deleted library’s place in every subscription that paid for it', async () => {
+    let who = 'first'
+    const call = server(async () => ({ productId: 'p', originalTransactionId: who, expiresAt: Date.now() + 86_400_000, purchasedAt: PURCHASED, environment: 'Production' }))
+    expect((await call('/v1/library', post({ jws: 'receipt' }))).status).toBe(200)
+    who = 'second'
+    expect((await call('/v1/entitlement', post({ jws: 'receipt' }))).status).toBe(200)
+    const [first, second] = [call.subscribers.get(await sha256('first'))!, call.subscribers.get(await sha256('second'))!]
+    expect([first.claimOf(ID), second.claimOf(ID)]).toEqual([1, 1])
+    expect((await call('/v1/library', { method: 'DELETE' })).status).toBe(200)
+    expect([first.claimOf(ID), second.claimOf(ID)]).toEqual([0, 0])
+    expect(first.paidTo(0, PURCHASED)).toEqual([])
+  })
+
+  // The library deleted, and a subscription that couldn't be told: answered as a failure, which a device changing
+  // its code took for the old library still being there (found checking the fix, 2026-11-23).
+  it('says a library is deleted once it is, though a subscription that paid for it can’t be told', async () => {
+    const call = server()
+    expect((await call('/v1/library', post({ jws: 'signed' }))).status).toBe(200)
+    const subscriber = call.subscribers.get(await sha256('o'))!
+    subscriber.releaseLibrary = () => {
+      throw new Error('The subscription is away')
+    }
+    const deleted = await call('/v1/library', { method: 'DELETE' })
+    expect([deleted.status, await deleted.json()]).toEqual([200, { wiped: true }])
+    expect((await call('/v1/status')).status).toBe(404)
+  })
+
   it('leaves a library gone idle its place when a receipt comes for it with the wrong code', async () => {
     const call = server()
     expect((await call('/v1/library', post({ jws: 'signed' }))).status).toBe(200)
@@ -115,6 +162,54 @@ describe('sync API', () => {
     const wrong = { Authorization: `Bearer ${ID}.${'B'.repeat(43)}` }
     expect((await call('/v1/entitlement', { ...post({ jws: 'signed' }), headers: wrong })).status).toBe(401)
     expect(subscriber.paidTo(Date.now() + 86_400_000, PURCHASED)).toEqual([ID])
+  })
+
+  // A device still on a deleted library's code sends its receipt at every look (src/sync/session). Each was counted
+  // as a new library made that day: some nineteen looks, and "Turn sync on" was refused till tomorrow (found
+  // checking the fix, 2026-11-23).
+  it('makes a new library on a day a device has gone on sending its receipt for a deleted one', async () => {
+    const call = server()
+    expect((await call('/v1/library', post({ jws: 'signed' }))).status).toBe(200)
+    expect((await call('/v1/library', { method: 'DELETE' })).status).toBe(200)
+    for (let look = 0; look < NEW_LIBRARIES_PER_DAY + 5; look++) expect((await call('/v1/entitlement', post({ jws: 'signed' }))).status).toBe(404)
+    const another = { Authorization: `Bearer ${'1'.repeat(32)}.${SECRET}` }
+    expect((await call('/v1/library', { ...post({ jws: 'signed' }), headers: another })).status).toBe(200)
+  })
+
+  it('still makes only so many new libraries in a day', async () => {
+    const call = server()
+    const as = (i: number) => ({ Authorization: `Bearer ${String(i).padStart(32, '0')}.${SECRET}` })
+    const made = []
+    for (let i = 0; i < NEW_LIBRARIES_PER_DAY + 2; i++) {
+      made.push((await call('/v1/library', { ...post({ jws: 'signed' }), headers: as(i) })).status)
+      await call('/v1/library', { method: 'DELETE', headers: as(i) })
+    }
+    expect(made).toEqual([...Array(NEW_LIBRARIES_PER_DAY).fill(200), 429, 429])
+  })
+
+  // The subscription kept only when a sync receipt was bought and when it came, not what it was paid to (found
+  // checking the fix, 2026-11-23).
+  it('keeps what a receipt is paid to with the subscription it’s counted against', async () => {
+    const until = Date.now() + 200 * 86_400_000
+    const call = server(async () => ({ productId: 'p', originalTransactionId: 'o', expiresAt: until, purchasedAt: PURCHASED, environment: 'Production' }))
+    expect((await call('/v1/library', post({ jws: 'signed' }))).status).toBe(200)
+    expect(call.subscribers.get(await sha256('o'))!.expiresAt()).toBe(until)
+  })
+
+  // Asked first whether the code was right, with Plus needed, a lapsed library was answered 402 before the request
+  // that lets go of old versions was ever put to it: they stayed past the 90 days the policy says (found checking
+  // the fix, 2026-11-23).
+  it('lets go of past versions for a library whose Plus has lapsed', async () => {
+    const call = server()
+    expect((await call('/v1/library', post({ jws: 'signed' }))).status).toBe(200)
+    expect((await call('/v1/changes', post({ records: [{ k: KEY, p: 'AAAA' }] }))).status).toBe(200)
+    call.open('eu', ID).revoke(await sha256('o'), Date.now())
+    expect((await call('/v1/changes', post({ records: [{ k: KEY, p: 'BBBB' }] }))).status).toBe(402)
+    const expired = await call('/v1/expire', post({ keys: [KEY] }))
+    expect([expired.status, await expired.json()]).toEqual([200, { expired: [KEY] }])
+    // Still by the code alone: another's is refused, and a body that isn't keys.
+    expect((await call('/v1/expire', { ...post({ keys: [KEY] }), headers: { Authorization: `Bearer ${ID}.${'B'.repeat(43)}` } })).status).toBe(401)
+    expect((await call('/v1/expire', post({ keys: 'all' }))).status).toBe(400)
   })
 
   it(`syncs at most ${MAX_LIBRARIES} libraries on one subscription, and deleting one frees its place`, async () => {
@@ -275,6 +370,24 @@ describe('sync API', () => {
       return me
     }
 
+    it('lets go of past versions for a lapsed library by a signed request too', async () => {
+      const call = server()
+      const me = await enrolled(call)
+      expect((await call(...(await me.signed('POST', '/v1/changes', { records: [{ k: KEY, p: 'AAAA' }] })))).status).toBe(200)
+      call.open('eu', ID).revoke(await sha256('o'), Date.now())
+      expect((await call(...(await me.signed('POST', '/v1/expire', { keys: [KEY] })))).status).toBe(200)
+      expect((await call(...(await (await device()).signed('POST', '/v1/expire', { keys: [KEY] })))).status).toBe(401)
+    })
+
+    it('takes a signed word of which files a device uses once, as any signed request that changes something', async () => {
+      const call = server()
+      const me = await enrolled(call)
+      const said = await me.signed('POST', '/v1/files/used', { keys: [KEY], done: true })
+      expect((await call(...said)).status).toBe(200)
+      expect((await call(...said)).status).toBe(401)
+      expect((await call(...(await (await device()).signed('POST', '/v1/files/used', { keys: [KEY], done: true })))).status).toBe(401)
+    })
+
     it('reaches the library with nothing in the request that could be sent again later', async () => {
       const call = server()
       const me = await enrolled(call)
@@ -310,7 +423,8 @@ describe('sync API', () => {
     it(`reads no more signed pushes from a network once ${BAD_PUSHES_PER_NETWORK} that didn’t check out have come from it today, and never counts a device’s own`, async () => {
       const call = server()
       const me = await enrolled(call)
-      for (let n = 0; n < 5; n++) expect((await call(...(await me.signed('POST', '/v1/changes', { records: [{ k: KEY, p: 'AAAA' }] })))).status).toBe(200)
+      // Each its own: the same push signed twice in one millisecond is one request sent again, and refused as that (worker/library `taken`).
+      for (let n = 0; n < 5; n++) expect((await call(...(await me.signed('POST', '/v1/changes', { records: [{ k: KEY, p: `AAA${n}` }] })))).status).toBe(200)
       const stranger = await device()
       for (let n = 0; n < BAD_PUSHES_PER_NETWORK; n++) expect((await call(...(await stranger.signed('POST', '/v1/changes', { records: [{ k: KEY, p: 'AAAA' }] })))).status).toBe(401)
       const pulled = { n: 0 }
@@ -365,6 +479,28 @@ describe('sync API', () => {
       expect((await call(...read)).status).toBe(200)
     })
 
+    // A signature's 64 bytes take 86 characters, the last carrying two bits and four that decoding drops: sixteen
+    // spellings of one signature, each of which verified, and each new to `taken`, which goes by the spelling. So
+    // the fix above let one caught request through fifteen times more (the server audit of 2026-11-23).
+    it('refuses a signed request sent again with its signature spelt another way', async () => {
+      const call = server()
+      const me = await enrolled(call)
+      const off = await me.signed('POST', '/v1/signed-only', { on: false })
+      expect((await call(...off)).status).toBe(200)
+      expect((await call(...(await me.signed('POST', '/v1/signed-only', { on: true })))).status).toBe(200)
+      const [path, init] = off
+      const headers = init.headers as Record<string, string>
+      const signature = headers['X-Nib-Signature']
+      const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+      const last = ALPHABET.indexOf(signature.at(-1)!)
+      const spellings = Array.from({ length: 16 }, (_, low) => signature.slice(0, -1) + ALPHABET[(last & 0b110000) | low]).filter((one) => one !== signature)
+      expect(spellings).toHaveLength(15)
+      const statuses = []
+      for (const spelt of spellings) statuses.push((await call(path, { ...init, headers: { ...headers, 'X-Nib-Signature': spelt } })).status)
+      expect(statuses).toEqual(Array(15).fill(401))
+      expect(await (await call(...(await me.signed('GET', '/v1/status')))).json()).toMatchObject({ signedOnly: true })
+    })
+
     // The code's hash, which a request caught in passing carries, could put another key in the library's place and
     // then require signed requests: every device of the writer's refused from then on, with nothing in the app to
     // undo it. Every device derives the one key from the code, so a different one is never a device's.
@@ -378,6 +514,25 @@ describe('sync API', () => {
       expect((await call(...(await someone.signed('POST', '/v1/signed-only', { on: true })))).status).toBe(401)
       expect((await call(...(await me.signed('GET', '/v1/status')))).status).toBe(200)
       expect((await call(...(await me.signed('POST', '/v1/key', { key: me.publicKey }, { authorization: AUTH.Authorization })))).status).toBe(200)
+    })
+
+    // With no key till the device's next request, a library just made could be given a stranger's by the code's hash.
+    it('takes a new library’s key with the request that makes it, if that request proves it', async () => {
+      const call = server()
+      const me = await device()
+      const made = await me.signed('POST', '/v1/library', { jws: 'receipt', key: me.publicKey }, { authorization: AUTH.Authorization })
+      expect((await call(...made)).status).toBe(200)
+      // Signed requests at once, with no /v1/key between, and no other key in its place.
+      expect((await call(...(await me.signed('GET', '/v1/status')))).status).toBe(200)
+      const someone = await device()
+      expect((await call(...(await someone.signed('POST', '/v1/key', { key: someone.publicKey }, { authorization: AUTH.Authorization })))).status).toBe(409)
+
+      // A key the request doesn't prove is as none given: the library is made, and takes its key the old way.
+      const other = server()
+      const unproved = await me.signed('POST', '/v1/library', { jws: 'receipt', key: someone.publicKey }, { authorization: AUTH.Authorization })
+      expect((await other(...unproved)).status).toBe(200)
+      expect(await (await other(...(await someone.signed('GET', '/v1/status')))).json()).toMatchObject({ code: 'unenrolled' })
+      expect((await other(...(await me.signed('POST', '/v1/key', { key: me.publicKey }, { authorization: AUTH.Authorization })))).status).toBe(200)
     })
 
     it('takes a key only from a device that proves it holds it', async () => {

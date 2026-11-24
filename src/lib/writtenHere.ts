@@ -28,9 +28,10 @@ function wordsIn(body: Item['body']): number {
  * Words beyond where each document stood in `base`, never below zero —
  * cutting a paragraph is editing, not unwriting. A document not in `base` yet
  * joins it as it stands, so one imported, duplicated or arriving by sync
- * counts nothing. Says whether `base` grew, for the caller to store.
+ * counts nothing. Says whether `base` grew, for the caller to store; and,
+ * given `each`, puts in it each document's words that count, by id.
  */
-export function tally(documents: Item[], base: Record<string, number>): { total: number; grew: boolean } {
+export function tally(documents: Item[], base: Record<string, number>, each?: Map<string, number>): { total: number; grew: boolean } {
   let total = 0
   let grew = false
   for (const item of documents) {
@@ -39,7 +40,9 @@ export function tally(documents: Item[], base: Record<string, number>): { total:
       base[item.id] = words
       grew = true
     }
-    total += Math.max(0, words - base[item.id])
+    const written = Math.max(0, words - base[item.id])
+    total += written
+    if (written > 0) each?.set(item.id, written)
   }
   return { total, grew }
 }
@@ -48,13 +51,14 @@ export function tally(documents: Item[], base: Record<string, number>): { total:
  * Words written today: each document's words now, less what it held when Nib
  * first saw it today. "First saw" rather than "was created": a document first
  * seen already written is not a day's writing. One started in the editor
- * counts from nothing (see `startedHere`).
+ * counts from nothing (see `startedHere`). `each`, if given, gets each
+ * document's share, by id (lib/writingStats recordFolders).
  */
-export function wordsToday(documents: Item[], now: number): number {
+export function wordsToday(documents: Item[], now: number, each?: Map<string, number>): number {
   const today = localDay(now)
   const stored = readJson<Day>(DAY_KEY, { day: '', base: {} })
   const day: Day = stored.day === today ? stored : { day: today, base: {} }
-  const { total, grew } = tally(documents, day.base)
+  const { total, grew } = tally(documents, day.base, each)
   if (grew || day !== stored) writeJson(DAY_KEY, day)
   return total
 }

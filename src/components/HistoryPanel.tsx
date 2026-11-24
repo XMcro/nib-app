@@ -10,8 +10,12 @@ import { Comparison } from './Comparison'
 /**
  * A document's versions, newest first. Without Nib Plus it reaches back
  * FREE_DAYS; the older ones are kept, counted at the end, and show with Plus.
- * One opened is compared with the text as it is now.
+ * One opened is compared with the text as it is now, with Plus; without it,
+ * it's shown as it was, to read and restore whole.
  */
+
+const COMPARE_PLUS = 'Comparing a version with the text as it is now, and bringing back one paragraph of it, are part of Nib Plus. Reading an earlier version and restoring it whole are free.'
+
 export function HistoryPanel({
   revisions,
   times = revisions.map((revision) => revision.createdAt),
@@ -22,6 +26,7 @@ export function HistoryPanel({
   onRestore,
   onBringBack,
   onPlus,
+  compares,
   readOnly,
 }: {
   /** The newest, as many as have been read: the rest are read as the list is scrolled to its end (lib/useHistory). */
@@ -39,6 +44,8 @@ export function HistoryPanel({
   onBringBack: (revision: Revision, basis: JSONContent, body: JSONContent) => void
   /** The older ones asked for: Plus, saying why. */
   onPlus: (reason: string) => void
+  /** Plus's features are open: a version opened is compared with now. */
+  compares: boolean
   readOnly?: boolean
 }) {
   const [comparing, setComparing] = useState<string | null>(null)
@@ -60,6 +67,8 @@ export function HistoryPanel({
         onRestore={() => onRestore(compared)}
         onBringBack={(body) => onBringBack(compared, basis, body)}
         readOnly={readOnly}
+        plain={!compares}
+        onPlus={() => onPlus(COMPARE_PLUS)}
       />
     )
   }

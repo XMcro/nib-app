@@ -6,6 +6,8 @@ import { Session } from './session'
 import { LOOKS_CHANGED } from '../lib/look'
 
 vi.mock('./engine', () => ({ syncOnce: vi.fn(), expireHistory: vi.fn(async () => {}), resetSyncState: vi.fn(), SyncReset: class SyncReset extends Error {} }))
+// The files' part of a look reads the database, which stands still while these tests hold the clock (session.files.test.ts has it).
+vi.mock('./files', () => ({ syncFiles: vi.fn(async () => ({ full: false, more: false })), fetchFile: vi.fn(), nameFiles: vi.fn(async () => 0) }))
 
 const nothing = { changed: [], full: false, tooLarge: 0, copies: 0, moved: new Map(), clean: false }
 

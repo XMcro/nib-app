@@ -13,7 +13,7 @@ import { asCalloutKind, CALLOUT_CSS, CALLOUT_INK, CALLOUT_NAMES } from './callou
 import { download, share } from './download'
 import { handOverFile, takeExport } from './exportFile'
 import { attachedName, NOT_INCLUDED } from './attachment'
-import { allowedImageSrc, asImageSize, filterBodyImages, IMAGE_SHARE, IMAGE_SIZE_RULES, withoutAboutIn } from './image'
+import { allowedImageSrc, asImageSize, asSpan, filterBodyImages, IMAGE_SHARE, IMAGE_SIZE_RULES, withoutAboutIn } from './image'
 import { linkTitle, withoutLines } from './links'
 import { fromMarkup, withMathML } from './math'
 import type { Stretch } from '../editor/codeWorker'
@@ -21,6 +21,8 @@ import { CODE_CSS, CODE_INK } from './codeLanguages'
 import { coloursOf } from '../editor/codeColours'
 import { titleOf } from './text'
 import { aboutWords, runningHead, withSceneBreaks, type Standard } from './manuscript'
+import { scriptPages, type ScriptPage } from './scriptPages'
+import { nameOf } from './fountain'
 
 /**
  * One document as Word, PDF or HTML — Nib Plus. Markdown export stays in
@@ -44,8 +46,36 @@ export const BOOK_FORMATS: BookFormat[] = ['docx', 'pdf', 'epub']
 /** What a book in standard manuscript format (lib/manuscript Standard) is made as: no e-book. */
 export const STANDARD_FORMATS: BookFormat[] = ['docx', 'pdf']
 
+/** A book's inside for print on demand, as NibPdf `book` takes it (lib/printBook): sizes in points. */
+export type BookPrint = {
+  width: number
+  height: number
+  inside: number
+  outside: number
+  top: number
+  bottom: number
+  style: string
+  sections: { markup: string; side: 'right' | 'left'; front?: true }[]
+  left?: string
+  right?: string
+  font?: string
+}
+
 /** `header`: a standard manuscript's running head, which the printer puts on each page after the first with its number, and an inch of margin all round. */
-const pdfPrinter = registerPlugin<{ render(options: { html: string; name: string; header?: string }): Promise<{ path: string }> }>('NibPdf')
+export const pdfPrinter = registerPlugin<{
+  render(options: { html: string; name: string; header?: string }): Promise<{ path: string }>
+  book(options: BookPrint & { name: string }): Promise<{ path: string }>
+  /** A screenplay laid out already (lib/scriptPages), each line where it goes on US Letter, drawn in Courier 12. */
+  screenplay(options: { pages: ScriptPage[]; name: string }): Promise<{ path: string }>
+}>('NibPdf')
+
+/** A screenplay (lib/fountain) as its industry-format PDF, laid out by lib/scriptPages and drawn by the system, and handed over. */
+export const printScreenplay = (body: JSONContent, name: string) =>
+  // Notes to self and TKs kept out, as from every export.
+  pdfPrinter.screenplay({ pages: scriptPages(withoutNotes(body)), name }).then(({ path }) => handOverFile(path, share))
+
+/** A screenplay's industry PDF as bytes, for a zip of several (lib/exportMany). */
+export const screenplayPdf = (body: JSONContent, name: string) => pdfPrinter.screenplay({ pages: scriptPages(withoutNotes(body)), name }).then(({ path }) => takeExport(path))
 
 /** Makes a file in `format`, and hands it over. The system prints the PDF (ios/App/App/NibPdfPlugin.swift), with `header` for a standard manuscript. */
 export function makeFile(format: RichFormat, name: string, { docx, html, header }: { docx: () => Promise<Blob>; html: () => string; header?: string }): Promise<void> {
@@ -69,7 +99,7 @@ export function fileNamed(title: string, extension: string): string {
 }
 
 /** One document's file, named for its title. */
-export const documentFilename = (item: Item, extension: RichFormat) => fileNamed(titleOf(item.body), extension)
+export const documentFilename = (item: Item, extension: RichFormat) => fileNamed(nameOf(item), extension)
 
 /** A table's file, named for the document it is in. */
 export const csvFilename = (body: JSONContent) => fileNamed(titleOf(body), 'csv')
@@ -77,7 +107,7 @@ export const csvFilename = (body: JSONContent) => fileNamed(titleOf(body), 'csv'
 /** A compiled manuscript's file, named for the book: its folder (lib/manuscript). */
 export const bookFilename = (title: string, extension: BookFormat) => fileNamed(title, extension)
 
-const escape = (text: string) =>
+export const escape = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 /** Each block of code that's been read for it (`coloursFor`) with its colours, as spans the export's own stylesheet colours. */
@@ -542,7 +572,7 @@ async function wordFile(title: string, bodies: JSONContent[], standard?: Standar
                 tableHeader: (row.content ?? []).every((cell) => cell.type === 'tableHeader') || undefined,
                 children: (row.content ?? []).map((cell) => {
                   const inside = blocks(cell.content)
-                  const span = (name: string) => (Number(cell.attrs?.[name] ?? 1) > 1 ? Number(cell.attrs?.[name]) : undefined)
+                  const span = (name: string) => (asSpan(cell.attrs?.[name]) > 1 ? asSpan(cell.attrs?.[name]) : undefined)
                   return new TableCell({
                     // Word refuses a cell with nothing in it.
                     children: inside.length ? inside : [new Paragraph({})],

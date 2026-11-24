@@ -124,7 +124,7 @@ function fromBase64(text: string): Uint8Array<ArrayBuffer> {
 }
 
 /** The server-side name of a record: an HMAC it cannot reverse. */
-export async function recordKey(keys: SyncKeys, type: 'item' | 'revision' | 'stamps' | 'folders' | 'looks' | 'file', id: string): Promise<string> {
+export async function recordKey(keys: SyncKeys, type: 'item' | 'revision' | 'stamps' | 'folders' | 'looks' | 'submissions' | 'file', id: string): Promise<string> {
   return base64url(new Uint8Array(await crypto.subtle.sign('HMAC', keys.names, encoder.encode(`${type}:${id}`))))
 }
 

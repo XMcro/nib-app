@@ -345,7 +345,7 @@ export const NIB_ORGANISING: Answer[] = [
     topic: 'nib',
     q: 'How do I go back to an earlier version of a note?',
     also: ['version history', 'restore an old version', 'undo changes from yesterday', 'see an older draft'],
-    a: 'Open it and choose Version history in Commands. Its versions are listed newest first, Current at the top; tap one to see what’s changed since, then press Restore this whole version.\n\nThe text you had before is kept in History too, so you can go back to it the same way.',
+    a: 'Open it and choose Version history in Commands. Its versions are listed newest first, Current at the top; tap one to see it (with Nib Plus, what’s changed since), then press Restore this whole version.\n\nThe text you had before is kept in History too, so you can go back to it the same way.',
     see: ['nib-history-reach', 'nib-history-paragraph'],
   },
   {
@@ -360,7 +360,7 @@ export const NIB_ORGANISING: Answer[] = [
     topic: 'nib',
     q: 'How do I see what I changed since an earlier version?',
     also: ['compare two drafts', 'compare with an old version', 'what changed since then', 'compare an earlier draft with what I have now'],
-    a: 'In Version history (in Commands), tap an earlier version. You see only what’s changed since: words taken out struck through, words put in highlighted, and the paragraphs that haven’t changed folded away, a tap from being shown.',
+    a: 'With Nib Plus, in Version history (in Commands), tap an earlier version. You see only what’s changed since: words taken out struck through, words put in highlighted, and the paragraphs that haven’t changed folded away, a tap from being shown. Without Plus, you see the version as it was, to read and restore whole.',
     see: ['nib-history-paragraph'],
   },
   {
@@ -368,7 +368,7 @@ export const NIB_ORGANISING: Answer[] = [
     topic: 'nib',
     q: 'Can I bring back one paragraph from an old version?',
     also: ['restore just one paragraph', 'get back a paragraph I cut', 'get back a paragraph I deleted'],
-    a: 'Yes. In Version history (in Commands), tap the version it’s in. Under each paragraph changed or taken out since, press Bring back, and that paragraph alone comes back. The text before is kept in History.',
+    a: 'Yes, with Nib Plus. In Version history (in Commands), tap the version it’s in. Under each paragraph changed or taken out since, press Bring back, and that paragraph alone comes back. The text before is kept in History.',
   },
   {
     id: 'nib-history-often',
@@ -421,8 +421,8 @@ export const NIB_ORGANISING: Answer[] = [
     id: 'nib-template-limit',
     topic: 'nib',
     q: 'Why can’t I save another template?',
-    also: ['template limit', 'more than three templates'],
-    a: 'Three templates are free. With Nib Plus, keep as many as you like. Without it, move one you no longer need to the trash to make room: those in the trash don’t count.',
+    also: ['template limit', 'more than one template'],
+    a: 'One template is free. With Nib Plus, keep as many as you like. Without it, move one you no longer need to the trash to make room: those in the trash don’t count.',
   },
 
   // Tabs, and a document beside.
@@ -511,7 +511,7 @@ export const NIB_ORGANISING: Answer[] = [
     topic: 'nib',
     q: 'Can a reminder repeat?',
     also: ['weekly reminder', 'recurring reminder'],
-    a: 'Yes. In Remind me… (in Commands), choose Daily, Weekly, Monthly or Yearly under Repeat first, then the time. It comes again each time after that.',
+    a: 'Yes, with Nib Plus. In Remind me… (in Commands), choose Daily, Weekly, Monthly or Yearly under Repeat first, then the time. It comes again each time after that. A reminder that rings once is free.',
   },
   {
     id: 'nib-reminder-change',

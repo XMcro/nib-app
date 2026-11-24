@@ -1,0 +1,11 @@
+The recordings in Nib’s focus sounds
+
+Each was cut, looped or taken apart into single sounds, evened out in level and compressed for Nib.
+
+Rain (sounds/rain.m4a): “Rain against the Window” by cori, 2008, from PDSounds (record 600), via Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Rain_against_the_window.ogg. Released into the public domain by its author.
+
+Café (sounds/cafe.m4a): “Restaurant Ambience” by stephan, 2007, from PDSounds (record 274), via Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Restaurant_ambience.ogg. Released into the public domain by its author.
+
+Fire (sounds/fire.m4a): “Campfire sound ambience” by Glaneur de sons, 2007, from Freesound, via Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Campfire_sound_ambience.ogg. Licensed under the Creative Commons Attribution 3.0 licence, https://creativecommons.org/licenses/by/3.0/.
+
+Typewriter (sounds/typewriter.wav): “WWS Typewriter”, an Erika 5 typewriter of 1940, recorded by Konrad Gutkowski for Work With Sounds, 2015, via Wikimedia Commons, https://commons.wikimedia.org/wiki/File:WWS_Typewriter.ogg. Licensed under the Creative Commons Attribution 4.0 licence, https://creativecommons.org/licenses/by/4.0/.

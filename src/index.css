@@ -231,6 +231,89 @@
   --color-highlight: #3d3566;
 }
 
+/* Six of Nib's own (Nib Plus, asked for 2026-11-20), three light and three
+   dark, each light one with a dark partner: Vellum and Ember, Sage and Tide,
+   Lilac and Merlot. Every one reads as a theme of one's own must
+   (lib/ownTheme): the ink, the muted text and the accent at 4.5:1 or more on
+   the paper and the shell, and the ink on the highlight and a chosen row. */
+[data-theme='vellum'] {
+  --color-paper: #f7f0e5;
+  --color-shell: #ece3d4;
+  --color-ink: #3a2a1f;
+  --color-muted: #6b5746;
+  --color-accent: #8e2f3c;
+  --color-line: #e4d9c8;
+  --color-faint: #c2b29e;
+  --color-item-active: #e2d6c3;
+  --color-item-hover: #efe6d8;
+  --color-highlight: #edcac1;
+}
+
+[data-theme='sage'] {
+  --color-paper: #eff3ec;
+  --color-shell: #e2e9de;
+  --color-ink: #1f3326;
+  --color-muted: #4c6352;
+  --color-accent: #2c6847;
+  --color-line: #dae3d5;
+  --color-faint: #acbdaf;
+  --color-item-active: #d5dfd0;
+  --color-item-hover: #e6ece2;
+  --color-highlight: #c1dcb8;
+}
+
+[data-theme='lilac'] {
+  --color-paper: #f4f1f8;
+  --color-shell: #e9e4f1;
+  --color-ink: #2b2238;
+  --color-muted: #5c5070;
+  --color-accent: #6146b5;
+  --color-line: #e1dbeb;
+  --color-faint: #b7adc7;
+  --color-item-active: #dcd4e9;
+  --color-item-hover: #ece7f3;
+  --color-highlight: #ddd2f5;
+}
+
+[data-theme='ember'] {
+  --color-paper: #1c1714;
+  --color-shell: #241d19;
+  --color-ink: #eee2d4;
+  --color-muted: #a8978a;
+  --color-accent: #e6a246;
+  --color-line: #332a24;
+  --color-faint: #6a5b50;
+  --color-item-active: #2f2621;
+  --color-item-hover: #28201b;
+  --color-highlight: #5a3d1c;
+}
+
+[data-theme='tide'] {
+  --color-paper: #0f1c1e;
+  --color-shell: #142427;
+  --color-ink: #dcebea;
+  --color-muted: #8aa6a6;
+  --color-accent: #4cc3b5;
+  --color-line: #213336;
+  --color-faint: #4f6668;
+  --color-item-active: #1d3134;
+  --color-item-hover: #18292c;
+  --color-highlight: #1f4a48;
+}
+
+[data-theme='merlot'] {
+  --color-paper: #1d1416;
+  --color-shell: #261a1d;
+  --color-ink: #f1e3e4;
+  --color-muted: #ad9396;
+  --color-accent: #ee8a86;
+  --color-line: #362629;
+  --color-faint: #6e5357;
+  --color-item-active: #322226;
+  --color-item-hover: #2a1d20;
+  --color-highlight: #5c2a32;
+}
+
 /* A theme of one's own (lib/ownTheme): its colours, worked out in script,
    as --own-* on <html> (lib/theme applyTheme). */
 [data-theme='custom'] {
@@ -306,6 +389,72 @@ select {
    a gap after every paragraph read as a blank line typed between them. */
 .nib-editor p {
   margin: 0;
+}
+
+/* A screenplay (lib/fountain, editor/Screenplay): each line laid out as its
+   element is on the printed page, in Courier, by the industry's measures of a
+   six-inch line, as shares of the column so they hold on a phone: a character
+   from 2.2 inches in, dialogue from 1 inch to 4.5, a parenthetical from 1.6
+   to 4, a transition to the right. What isn't printed is faint. */
+.nib-screenplay {
+  font-family: 'Courier Prime', 'Courier New', Courier, monospace;
+}
+
+/* The lines shown in capitals are flow-root, which looks the same: a line
+   whose element changes then changes display too, and WebKit draws its text
+   afresh. Without it, a word whose case changed while the line was shown in
+   capitals (the keyboard bar's Character making "eve" EVE) went on being drawn
+   as it was before ("eve") once the line wasn't in capitals any more, though
+   its text was EVE. Seen on iOS 27 in the simulator, on a bare page in Safari
+   too, 2026-11-22. */
+.nib-screenplay :is(.nib-sp-scene, .nib-sp-character, .nib-sp-transition) {
+  display: flow-root;
+}
+
+.nib-screenplay .nib-sp-scene {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.nib-screenplay .nib-sp-character {
+  padding-left: 36.7%;
+  text-transform: uppercase;
+}
+
+.nib-screenplay :is(.nib-sp-dialogue, .nib-sp-lyric) {
+  padding-right: 25%;
+  padding-left: 16.7%;
+}
+
+.nib-screenplay .nib-sp-lyric {
+  font-style: italic;
+}
+
+.nib-screenplay .nib-sp-parenthetical {
+  padding-right: 33.3%;
+  padding-left: 26.7%;
+}
+
+.nib-screenplay .nib-sp-transition {
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.nib-screenplay .nib-sp-centered {
+  text-align: center;
+}
+
+.nib-screenplay :is(.nib-sp-title, .nib-sp-section, .nib-sp-synopsis, .nib-sp-note, .nib-sp-boneyard, .nib-sp-pageBreak) {
+  color: var(--color-muted);
+}
+
+.nib-screenplay :is(.nib-sp-synopsis, .nib-sp-note) {
+  font-style: italic;
+}
+
+/* The mark that forces a line's element, there but out of the way. */
+.nib-screenplay .nib-sp-mark {
+  opacity: 0.35;
 }
 
 /* A heading still opens its section with room above it. */

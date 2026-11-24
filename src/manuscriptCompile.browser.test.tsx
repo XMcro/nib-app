@@ -47,10 +47,13 @@ vi.mock('./lib/plus', async (importOriginal) => ({
   },
 }))
 // The PDF is printed by the system (NibPdfPlugin.swift): stood in for, what it's asked to print kept, and the sheet that would share it.
-const printer = vi.hoisted(() => ({ asked: [] as { html: string; name: string; header?: string }[] }))
+const printer = vi.hoisted(() => ({ asked: [] as { html: string; name: string; header?: string }[], books: [] as (import('./lib/documentExport').BookPrint & { name: string })[] }))
 vi.mock('@capacitor/core', async (importOriginal) => {
   const real = await importOriginal<typeof import('@capacitor/core')>()
-  const pdf = { render: async (options: { html: string; name: string; header?: string }) => (printer.asked.push(options), { path: `file:///exports/${options.name}` }) }
+  const pdf = {
+    render: async (options: { html: string; name: string; header?: string }) => (printer.asked.push(options), { path: `file:///exports/${options.name}` }),
+    book: async (options: (typeof printer.books)[number]) => (printer.books.push(options), { path: `file:///exports/${options.name}` }),
+  }
   return { ...real, registerPlugin: ((name: string, ...rest: []) => (name === 'NibPdf' ? pdf : real.registerPlugin(name, ...rest))) as typeof real.registerPlugin }
 })
 vi.mock('./lib/download', async (importOriginal) => ({ ...(await importOriginal<typeof import('./lib/download')>()), share: async () => {} }))
@@ -89,6 +92,7 @@ beforeEach(async () => {
   replaceFolderSettings({})
   handed = []
   printer.asked = []
+  printer.books = []
   const two = await items.create('page', doc('Chapter two', 'It had been a long season.'), { folder: 'Novel' })
   const one = await items.create('page', doc('Chapter one', 'The boats came in late.'), { folder: 'Novel' })
   await items.setPositions([
@@ -390,6 +394,42 @@ describe('a manuscript in standard manuscript format', () => {
     await expect.poll(() => printer.asked.length).toBe(2)
     expect(printer.asked[1]).not.toHaveProperty('header')
     expect(printer.asked[1].html).toContain('by Ann Writer')
+  })
+})
+
+describe('a book for print on demand', () => {
+  it('asks for Plus without it, and makes nothing', async () => {
+    await openManuscript()
+    await userEvent.click(library().getByRole('button', { name: /^Print-ready PDF/ }))
+    expect(await within(document.body).findByText('A book’s inside, ready to print and sell through Amazon KDP or IngramSpark, is part of Nib Plus.')).toBeTruthy()
+    expect(library().queryByRole('group', { name: 'Trim size' })).toBeNull()
+    expect(printer.books).toEqual([])
+  })
+
+  it('with Plus, is made at the trim chosen: its title page and copyright, then the chapters, in Literata, and no cover', async () => {
+    state.active = true
+    await openManuscript()
+    const titlePage = within(library().getByRole('group', { name: 'Title page' }))
+    await userEvent.fill(titlePage.getByRole('textbox', { name: 'Title' }), 'The Long Season')
+    await userEvent.fill(titlePage.getByRole('textbox', { name: 'By' }), 'Ann Writer')
+    await userEvent.click(library().getByRole('button', { name: 'Print-ready PDF' }))
+    const options = within(library().getByRole('group', { name: 'Print-ready PDF' }))
+    await userEvent.click(options.getByRole('button', { name: '5.5 × 8.5 in' }))
+    await userEvent.click(options.getByRole('checkbox', { name: 'Drop caps' }))
+    await userEvent.click(options.getByRole('button', { name: 'Make the PDF' }))
+    await expect.poll(() => printer.books.length).toBe(1)
+    const [book] = printer.books
+    expect(book).toMatchObject({ name: 'The Long Season (5.5 × 8.5 in).pdf', width: 396, height: 612, left: 'Ann Writer', right: 'The Long Season' })
+    const text = book.sections.map(({ markup }) => new DOMParser().parseFromString(markup, 'text/html').body.textContent)
+    expect(text).toEqual(['The Long SeasonAnn Writer', `Copyright © ${new Date().getFullYear()} Ann Writer. All rights reserved.`, 'Chapter oneThe boats came in late.', 'Chapter twoIt had been a long season.'])
+    expect(book.sections.map(({ side }) => side)).toEqual(['right', 'left', 'right', 'right'])
+    expect(book.sections.some(({ markup }) => markup.includes('<img'))).toBe(false)
+    // Nib's own Literata, put in the page, and given for the heads.
+    expect(book.style.match(/src: url\(data:font\/woff2;base64,/g)).toHaveLength(4)
+    expect(book.style).toContain('initial-letter: 3')
+    expect(atob(book.font!).slice(0, 4)).toBe('wOF2')
+    // Chosen for next time.
+    expect(JSON.parse(localStorage.getItem('nib-print-book')!)).toEqual({ trim: '5.5x8.5', dropCaps: true })
   })
 })
 

@@ -1,4 +1,4 @@
-import { marked } from 'marked'
+import { marked, type Token } from 'marked'
 import { generateJSON } from '@tiptap/html'
 import type { JSONContent } from '@tiptap/react'
 import type { Kind } from '../db/db'
@@ -14,7 +14,12 @@ export type Incoming = { kind: Kind; markdown: string }
 // as the ordinary document it is rather than unpacked as an export. No `g`
 // flag: this is reused across calls and `lastIndex` would make it stateful.
 const EXPORT_HEADER = /^# Nib export — \d{4}-\d{2}-\d{2}/
-const ENTRY_RULE = /\n\n---\n\n/
+// How every entry of an export starts (lib/export): its title, then its date. A section's heading and the rule
+// between two entries are those only before one: a page with a "Notes" heading of its own, or code with a rule
+// in it, came back as two documents otherwise.
+const ENTRY_START = '###[^\\n]*\\n\\n\\*\\d{4}-\\d{2}-\\d{2}\\*(?:\\n|$)'
+const SECTION = new RegExp(`\\n## (Notes|Pages)\\n(?=\\n${ENTRY_START})`)
+const ENTRY_RULE = new RegExp(`\\n\\n---\\n\\n(?=${ENTRY_START})`)
 
 /** Drops the `### Title` and `*date*` lines an export adds back on. */
 function stripEntryHeader(entry: string): string {
@@ -47,7 +52,7 @@ export function parseImport(markdown: string, fallbackKind: Kind): Incoming[] {
 
   const incoming: Incoming[] = []
   // Everything after a `## Notes` / `## Pages` heading belongs to that kind.
-  const sections = text.split(/\n## (Notes|Pages)\n/)
+  const sections = text.split(SECTION)
   for (let i = 1; i < sections.length; i += 2) {
     const kind: Kind = sections[i] === 'Pages' ? 'page' : 'note'
     for (const entry of sections[i + 1].split(ENTRY_RULE)) {
@@ -215,6 +220,8 @@ const PREFIX = /^(?:[ \t]*>)*[ \t]*(?:[*+-][ \t]+(?:\[[ xX]\][ \t]+)?)?/
 const MAX_NEST = 32
 /** One more level down, at a line's start: a quote's `>`, a bullet, or a number. */
 const MARKER = /[ \t]*(?:>|(?:[*+-]|\d{1,9}[.)])[ \t]+)/y
+/** Indented past MAX_INDENT. */
+const DEEP = /^[ \t]{65}/
 /** A `***` or `___` rule, which escaped would read as text. */
 const RULE = /^ {0,3}([*_-])(?:[ \t]*\1){2,}[ \t]*$/
 
@@ -229,11 +236,16 @@ const RULE = /^ {0,3}([*_-])(?:[ \t]*\1){2,}[ \t]*$/
  * Indentation past MAX_INDENT is held to it. And it follows each quote or list
  * marker at a line's start a level down, with no end to it: 3,000 `>` on a
  * line, and it ran out of stack. Past MAX_NEST they are escaped, and read as
- * the characters they are. Code fences are left as written.
+ * the characters they are. Code fences are left as written, where they are
+ * fences to marked too: a line it reads otherwise (```a```, which is a word
+ * in code, or ``` inside an HTML block) left everything after it untamed, and
+ * a post of 100,000 characters to the inbox took 47 s.
  */
-function tame(markdown: string): string {
-  const lines = markdown.split('\n')
+function tame(markdown: string, fences = true): string {
+  // Lines as marked counts them.
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
   let fence: string | null = null
+  let [fenced, deep] = [0, false]
   let paragraph: number[] = []
   const prose = (line: string) => (RULE.test(line) ? '' : line.slice(PREFIX.exec(line)![0].length))
   const close = () => {
@@ -248,9 +260,12 @@ function tame(markdown: string): string {
     paragraph = []
   }
   lines.forEach((line, i) => {
-    const opener = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+    // As marked opens and closes one: no backtick after a backtick fence's opening, and nothing but spaces after a closing.
+    const opener = fences ? /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/.exec(line)?.[1] : undefined
     if (fence) {
-      if (opener && opener[0] === fence[0] && opener.length >= fence.length) fence = null
+      fenced += unescaped(line)
+      deep ||= DEEP.test(line) || nested(line) !== line
+      if (/^ {0,3}([`~]+) *$/.exec(line)?.[1].startsWith(fence)) fence = null
       return
     }
     if (opener) {
@@ -259,12 +274,37 @@ function tame(markdown: string): string {
       return
     }
     if (!line.trim()) return close()
-    if (/^[ \t]{65}/.test(line)) lines[i] = line.replace(/^[ \t]+/, ' '.repeat(MAX_INDENT))
+    if (DEEP.test(line)) lines[i] = line.replace(/^[ \t]+/, ' '.repeat(MAX_INDENT))
     if (!RULE.test(lines[i])) lines[i] = nested(lines[i])
     paragraph.push(i)
   })
   close()
-  return lines.join('\n')
+  const tamed = lines.join('\n')
+  // Enough left as written to matter: marked is asked whether it's code to it as well, and if not, nothing is taken for code.
+  return (fenced > MAX_MARKS || deep) && !readAsCode(tamed) ? tame(markdown, false) : tamed
+}
+
+/** How many of `text`'s marks would still be read as marks. */
+const unescaped = (text: string) => (text.match(/\\[\s\S]|[*_~[]/g) ?? []).filter((mark) => mark.length === 1).length
+
+/** How far down `tokens` go, a block inside a block. */
+const depthOf = (tokens: Token[]): number => tokens.reduce((most, token) => Math.max(most, 1 + depthOf([...(('tokens' in token && token.tokens) || []), ...(('items' in token && (token.items as Token[])) || [])])), 0)
+
+/**
+ * Whether marked finds no more marks in any one run of prose, and nothing
+ * nested deeper, than `tame` leaves: it's asked for its blocks only, which is
+ * quick, and what it would read for emphasis and links next is counted. With
+ * room to spare, as a paragraph to `tame` and one to marked aren't cut at quite
+ * the same places, and a level of a list is two blocks to marked. Running out
+ * of stack over it is an answer too.
+ */
+function readAsCode(tamed: string): boolean {
+  try {
+    const lexer = new marked.Lexer({ ...marked.defaults, gfm: true })
+    return depthOf(lexer.blockTokens(tamed)) <= 5 * MAX_NEST && lexer.inlineQueue.every(({ src }) => unescaped(src) <= 2 * MAX_MARKS)
+  } catch {
+    return false
+  }
 }
 
 /** `line` with no more than MAX_NEST quote and list markers at its start: any after those are escaped, each one, up to the line's first word. */

@@ -8,6 +8,7 @@ import { recount, SPRINT_KEY, tally, type Running } from './writtenHere'
 const SPRINT_DONE_KEY = 'nib-sprint-done'
 
 export const SPRINT_LENGTHS = [15, 25, 45]
+export const SPRINTS_PLUS = 'Sprints are part of Nib Plus, with a calendar of your writing days.'
 export const MAX_SPRINT_MINUTES = 240
 
 function forget(key: string) {

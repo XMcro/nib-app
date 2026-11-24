@@ -48,6 +48,21 @@ export const NOTES_PER_HOUR = 40
 export const NOTES_PER_READER_PER_DAY = 20
 /** The same from one wider network, an IPv6 /48 or IPv4 /24: ten /64s from one /48 filled all 200. */
 export const NOTES_PER_WIDE_PER_DAY = 40
+/**
+ * Tries at a draft to be read once that asks for a token (worker/shares), from one network in a day, and from the
+ * wider one around it. A wrong one was answered as fast as it was asked, uncounted: the password such a draft has
+ * could be guessed against the server at its own speed, by anyone the link had reached (the server audit of 2026-11-23).
+ */
+export const REVEALS_PER_NETWORK_PER_DAY = 20
+export const REVEALS_PER_WIDE_PER_DAY = 40
+/** Openings of one draft counted from one wider network in a day: each network in it was counted once, 65,536 to a /48. */
+export const OPENS_PER_WIDE_PER_DAY = 5
+/**
+ * How long a draft to be read once is held after it's first handed over, to be handed again to the same link and
+ * password: its answer lost on the way (a train, a tab put away), it was gone unread, and its writer told it had
+ * been read (the server audit of 2026-11-23).
+ */
+export const REVEALED_KEPT_MS = 10 * 60_000
 const CHUNK = 900_000 // a row stays under SQLite-in-Durable-Objects' 2 MB cap
 const DAY_MS = 86_400_000
 
@@ -61,7 +76,8 @@ export class Share {
   constructor(sql: Sql) {
     this.sql = sql
     this.made = sql.all("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").length > 0
-    if (this.made) this.tables()
+    // One that has ended keeps the mark of it and nothing else (`erase`).
+    if (this.made && this.get('ended') === undefined) this.tables()
   }
 
   private tables() {
@@ -101,7 +117,7 @@ export class Share {
     if (this.get('owner') !== undefined || this.get('ended') !== undefined) throw new Refused(409, 'That share already exists.')
     const expires = now + share.days * DAY_MS
     const free = share.subscriber === null
-    if (free && share.once) throw new Refused(403, 'A link that deletes itself after one reading is part of Nib Plus.')
+    if (free && share.once) throw new Refused(403, ONCE_IS_PLUS)
     this.sql.transaction(() => {
       this.tables()
       this.set('slug', share.slug)
@@ -127,6 +143,10 @@ export class Share {
     const expires = this.expiresAt()
     if (expires === null) throw new Refused(404, 'No such share.')
     if (expires <= now) throw new Refused(410, 'This share has expired.')
+    // Here, where every request of a share comes first: the text of one read once and held long enough goes as
+    // anything is next asked of it, if its alarm never came. Left to `reveal`, which `read` refuses before it's
+    // reached once the hold is over, it stayed till the share expired.
+    this.forgetRevealed(now)
   }
 
   private owned(ownerHash: string, now: number) {
@@ -141,6 +161,8 @@ export class Share {
 
   /** A renewal, reported through the subscription. Only ever extends. */
   entitle(until: number) {
+    // Not of one that has ended meanwhile (revoked while its subscription was asked): its mark stays the mark alone.
+    if (this.expiresAt() === null) return
     if (extendsPaid(this.get('entitled'), until)) this.set('entitled', until)
   }
 
@@ -159,7 +181,8 @@ export class Share {
     this.live(now)
     const about = { expiresAt: this.expiresAt()!, notesOn: Boolean(this.get('notes')) }
     if (this.get('once')) {
-      if (this.get('opened')) throw new Refused(410, READ_ONCE_GONE)
+      // Read, and no longer held to be handed over again (`reveal`).
+      if (this.get('opened') && !this.held(now)) throw new Refused(410, READ_ONCE_GONE)
       return { once: true, ...about }
     }
     return { doc: this.text(), ...about, ...(this.counts() ? { counted: true as const } : {}) }
@@ -172,31 +195,73 @@ export class Share {
 
   /** One more opening, unless it's its owner asking (the app, checking its key against the draft). */
   countOpen(ownerHash: string | null) {
-    if (this.counts() && this.get('owner') !== ownerHash) this.set('opens', Number(this.get('opens') ?? 0) + 1)
+    if (this.expiresAt() !== null && this.counts() && this.get('owner') !== ownerHash) this.set('opens', Number(this.get('opens') ?? 0) + 1)
   }
 
   private text() {
     return this.sql.all('SELECT data FROM chunks ORDER BY n').map((row) => String(row.data)).join('')
   }
 
+  /** Whether one to be read once, handed over, is still held to be handed to the same reader again (`reveal`). */
+  private held(now: number): boolean {
+    const revealed = this.get('revealed')
+    return typeof revealed === 'number' && now < revealed + REVEALED_KEPT_MS
+  }
+
+  /** When the text of one handed over is to be deleted, null if none is held (`forgetRevealed`). */
+  revealedDue(): number | null {
+    const revealed = this.get('revealed')
+    return typeof revealed === 'number' ? revealed + REVEALED_KEPT_MS : null
+  }
+
+  /** The text of one handed over REVEALED_KEPT_MS ago, deleted: by its alarm, or as it's next asked for. */
+  forgetRevealed(now: number) {
+    const due = this.revealedDue()
+    if (due === null || due > now) return
+    this.sql.transaction(() => {
+      this.sql.run('DELETE FROM chunks')
+      this.sql.run("DELETE FROM meta WHERE k = 'revealed'")
+    })
+  }
+
+  /** Whether one to be read once asks for a token before it's handed over: tries at those are counted (worker/shares). Refuses as `reveal` would one that isn't there to be read once. */
+  guarded(now: number): boolean {
+    this.live(now)
+    if (!this.get('once')) throw new Refused(404, 'Not found.')
+    return this.get('reveal') !== undefined
+  }
+
   /**
-   * One to be read once, handed to the reader who asked to see it, and its
-   * text deleted here in the same step. It stays until it expires, with no
-   * text: for its owner to learn it was read, and for the reader's notes.
+   * One to be read once, handed to the reader who asked to see it. It stays
+   * until it expires, with no text: for its owner to learn it was read, and
+   * for the reader's notes.
+   *
+   * Its text is deleted here in the same step if it asks for no token (one
+   * made before there were tokens). One that does is held REVEALED_KEPT_MS
+   * more, and handed again only to the same token, which takes the link's
+   * key and its password: then deleted (`forgetRevealed`).
    */
   reveal(now: number, tokenHash: string | null = null): { doc: string; expiresAt: number; notesOn: boolean } {
     this.live(now)
     if (!this.get('once')) throw new Refused(404, 'Not found.')
-    if (this.get('opened')) throw new Refused(410, READ_ONCE_GONE)
     // Only for the token from the link's key: the slug alone, which a log or a scanner on the way may keep, uses nothing up (the security review of 2026-11-13). One made before there were tokens has none to ask for.
     const kept = this.get('reveal')
+    const answer = () => ({ doc: this.text(), expiresAt: this.expiresAt()!, notesOn: Boolean(this.get('notes')) })
+    if (this.get('opened')) {
+      if (kept === undefined || !this.held(now)) throw new Refused(410, READ_ONCE_GONE)
+      // While it's held, a token that isn't its own is answered as before it was read: said to be gone, the reader
+      // page never tried the token of a draft made by an older Nib, and called a mistyped password "already read".
+      if (kept !== tokenHash) throw new Refused(404, 'Not found.')
+      return answer()
+    }
     if (kept !== undefined && kept !== tokenHash) throw new Refused(404, 'Not found.')
-    const doc = this.text()
+    const revealed = answer()
     this.sql.transaction(() => {
-      this.sql.run('DELETE FROM chunks')
+      if (kept === undefined) this.sql.run('DELETE FROM chunks')
+      else this.set('revealed', now)
       this.set('opened', 1)
     })
-    return { doc, expiresAt: this.expiresAt()!, notesOn: Boolean(this.get('notes')) }
+    return revealed
   }
 
   /** There, and taking notes: asked before a note is counted against anyone. */
@@ -231,12 +296,14 @@ export class Share {
   }
 
   /** A new expiry, counted from now, or notes on or off. Returns the expiry. */
-  update(ownerHash: string, change: { days?: number; notes?: boolean }, now: number): number {
+  update(ownerHash: string, change: { days?: number; notes?: boolean }, now: number, paid = true): number {
     this.owned(ownerHash, now)
     if (this.get('free')) {
       if (change.days !== undefined) throw new Refused(403, 'A free link can’t be extended. That’s part of Nib Plus.')
       if (change.notes) throw new Refused(403, 'Readers’ notes are part of Nib Plus.')
     }
+    // `paid`: whether its subscription is (`paidFor`). Refunded or lapsed, a share served to no one could still be kept, 90 days at a time.
+    if (change.days !== undefined && !paid) throw new Refused(402, 'Nib Plus is not active for this draft.')
     if (change.days !== undefined) this.set('expires', now + change.days * DAY_MS)
     if (change.notes !== undefined) this.set('notes', change.notes ? 1 : 0)
     return this.expiresAt()!
@@ -255,41 +322,69 @@ export class Share {
    * whoever saw the link holds its key, and could otherwise publish their own
    * text at the author's old address, out of the author's reach. Readers find
    * it gone, as they would without one.
+   *
+   * In one step, and its tables dropped, not emptied: emptied, they were kept for every share ever revoked or
+   * expired (the server audit of 2026-11-23). Not by deleting the object's storage and putting the mark back
+   * after: between those two there is a moment with no mark, and the mark is the point.
    */
   erase() {
     this.sql.transaction(() => {
-      this.tables()
-      for (const table of ['meta', 'chunks', 'notes']) this.sql.run(`DELETE FROM ${table}`)
-      this.set('ended', 1)
+      this.sql.run('DROP TABLE IF EXISTS chunks')
+      this.sql.run('DROP TABLE IF EXISTS notes')
+      this.sql.run('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v)')
+      this.sql.run('DELETE FROM meta')
+      this.sql.run("INSERT INTO meta (k, v) VALUES ('ended', 1)")
     })
+    this.made = true
+  }
+
+  /** When its object next has something to delete: the text of one handed over, or itself at its expiry. Null once it's gone. */
+  nextAlarm(): number | null {
+    const expires = this.expiresAt()
+    if (expires === null) return null
+    return Math.min(expires, this.revealedDue() ?? Infinity)
   }
 }
 
+/** When a subscription is paid to, asked of its own object: null if to no time at all. */
+type Renewal = (subscriber: string) => Promise<number | null>
+
+const NOT_SHARED = 'This draft isn’t being shared right now.'
+/** What a free link asked to be read once is refused with, here and before it's counted against anyone (worker/shares). */
+export const ONCE_IS_PLUS = 'A link that deletes itself after one reading is part of Nib Plus.'
+
 /**
- * Serves a share to a reader, but only while its subscription is paid for.
- * A share hears about renewals only when asked, so when its own record of
- * the subscription runs out, it asks the subscription once before refusing.
+ * Whether a share's subscription is paid for. A share hears about renewals
+ * only when asked, so when its own record of the subscription runs out, it
+ * asks the subscription once before saying no.
  */
+export async function paidFor(share: Share, now: number, renewal: Renewal): Promise<boolean> {
+  if (share.entitled(now)) return true
+  const subscriber = share.subscriber()
+  const until = subscriber ? await renewal(subscriber) : null
+  if (until !== null) share.entitle(until)
+  return share.entitled(now)
+}
+
+/** Serves a share to a reader, but only while its subscription is paid for (`paidFor`). */
 export async function readShare(
   share: Share,
   now: number,
-  renewal: (subscriber: string) => Promise<number | null>,
+  renewal: Renewal,
   { reveal = false, tokenHash = null }: { reveal?: boolean; tokenHash?: string | null } = {},
 ): Promise<ReturnType<Share['read']>> {
   const shared = share.read(now)
-  if (!share.entitled(now)) {
-    const subscriber = share.subscriber()
-    const until = subscriber ? await renewal(subscriber) : null
-    if (until !== null) share.entitle(until)
-    if (!share.entitled(now)) throw new Refused(410, 'This draft isn’t being shared right now.')
-  }
+  if (!(await paidFor(share, now, renewal))) throw new Refused(410, NOT_SHARED)
   // One to be read once (`reveal`): only now, with the subscription asked about, or a lapse would use it up unread.
   if (reveal) return share.reveal(now, tokenHash)
   // Counted by whoever asked (worker/shares), once it's been handed over: never while it's lapsed, expired or taken down.
   return shared
 }
 
-type ShareEffects = { subscriber(key: string): SubscriberRequests; alarm(at: number | null): Promise<void> }
+type ShareEffects = {
+  subscriber(key: string): SubscriberRequests
+  alarm(at: number | null): Promise<void>
+}
 
 /**
  * A share's requests, for its Durable Object. `alarm` schedules the deletion
@@ -306,17 +401,19 @@ export function shareRequests(share: Share, effects: ShareEffects, clock: () => 
       throw new Refused(410, 'This draft has been taken down.')
     }
   }
+  const renewal: Renewal = async (key) => (await effects.subscriber(key).expiry()).body as number | null
+  const paid = () => paidFor(share, clock(), renewal)
   return {
     create: (request: Parameters<Share['create']>[0]) =>
       answered(async () => {
         const expiresAt = share.create(request, clock())
-        await effects.alarm(expiresAt)
+        await effects.alarm(share.nextAlarm())
         return { status: 201, body: { expiresAt } }
       }),
     read: (blocked: string[]) =>
       answered(async () => {
         refuseBlocked(blocked)
-        return ok(await readShare(share, clock(), async (key) => (await effects.subscriber(key).expiry()).body as number | null))
+        return ok(await readShare(share, clock(), renewal))
       }),
     /** One more opening, once it's been handed over (worker/shares). `ownerHash`: the owner token the request came with, if any, hashed. */
     countOpen: (ownerHash: string | null) =>
@@ -324,21 +421,34 @@ export function shareRequests(share: Share, effects: ShareEffects, clock: () => 
         share.countOpen(ownerHash)
         return ok({ counted: true })
       }),
+    /** Whether it's one to be read once that asks for a token, for tries at it to be counted before they're made (worker/shares). */
+    guarded: (blocked: string[]) =>
+      answered(() => {
+        refuseBlocked(blocked)
+        return ok({ guarded: share.guarded(clock()) })
+      }),
     /** `tokenHash`: the hash of the token the reader showed, if any (src/share/crypto `revealToken`). */
     reveal: (blocked: string[], tokenHash: string | null = null) =>
       answered(async () => {
         refuseBlocked(blocked)
-        return ok(await readShare(share, clock(), async (key) => (await effects.subscriber(key).expiry()).body as number | null, { reveal: true, tokenHash }))
+        const revealed = await readShare(share, clock(), renewal, { reveal: true, tokenHash })
+        // Its text is deleted when it has been held long enough (`REVEALED_KEPT_MS`), if that comes before it expires.
+        await effects.alarm(share.nextAlarm())
+        return ok(revealed)
       }),
+    // A draft no reader is served takes no notes from one either: refunded, it went on taking them.
     takesNotes: (blocked: string[]) =>
-      answered(() => {
+      answered(async () => {
         refuseBlocked(blocked)
         share.takesNotes(clock())
+        if (!(await paid())) throw new Refused(410, NOT_SHARED)
         return ok({})
       }),
     addNote: (note: string, blocked: string[]) =>
-      answered(() => {
+      answered(async () => {
         refuseBlocked(blocked)
+        share.takesNotes(clock())
+        if (!(await paid())) throw new Refused(410, NOT_SHARED)
         return { status: 201, body: { id: share.addNote(note, clock()) } }
       }),
     notes: (ownerHash: string) => answered(() => ok(share.notes(ownerHash, clock()))),
@@ -349,11 +459,11 @@ export function shareRequests(share: Share, effects: ShareEffects, clock: () => 
       }),
     update: (ownerHash: string, change: { days?: number; notes?: boolean }) =>
       answered(async () => {
-        const expiresAt = share.update(ownerHash, change, clock())
+        const expiresAt = share.update(ownerHash, change, clock(), change.days === undefined || (await paid()))
         const slug = share.slug()
         const subscriber = share.subscriber()
         if (change.days !== undefined) {
-          await effects.alarm(expiresAt)
+          await effects.alarm(share.nextAlarm())
           if (slug && subscriber) await effects.subscriber(subscriber).extend(slug, expiresAt)
         }
         return ok({ expiresAt })
@@ -376,12 +486,13 @@ export function shareRequests(share: Share, effects: ShareEffects, clock: () => 
 
 export type ShareRequests = ReturnType<typeof shareRequests>
 
-/** At expiry: everything goes, and the subscription has one share fewer. */
+/** At expiry: everything goes, and the subscription has one share fewer. Before it, the alarm may be for the text of one read once, held long enough (`forgetRevealed`). */
 export async function expireShare(share: Share, now: number, effects: ShareEffects) {
   const expiresAt = share.expiresAt()
   if (expiresAt === null) return
-  // Extended since this alarm was set: wait for the new expiry instead.
-  if (expiresAt > now) return effects.alarm(expiresAt)
+  share.forgetRevealed(now)
+  // Extended since this alarm was set, or it was for that text: wait for the expiry.
+  if (expiresAt > now) return effects.alarm(share.nextAlarm())
   const slug = share.slug()
   const subscriber = share.subscriber()
   share.erase()

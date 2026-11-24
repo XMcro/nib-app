@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { BUNDLE_ID, PRODUCT_IDS } from '../worker/jws'
-import { KEPT_MONTHS } from '../worker/library'
+import { KEPT_MONTHS, UNUSED_DAYS } from '../worker/library'
+import { OPENS_PER_WIDE_PER_DAY, REVEALED_KEPT_MS } from '../worker/share'
+import { KEPT_DAYS } from '../worker/sweeps'
 import { LIBRARY_IDLE_MS, MAX_LIBRARIES } from '../worker/subscriber'
 import { FILES_LIMIT, FREE_DAYS, INBOX_BYTES, INBOX_DAILY, INBOX_DAYS, INBOX_WAITING, MAX_FILE, MAX_POST, MAX_SEALED_POST, SHARE_DAYS } from '../worker/wire.mjs'
 import config from '../capacitor.config'
@@ -131,13 +133,13 @@ describe('the files the import control can be handed on an iPhone', () => {
     const endings = [...listed.matchAll(/'\.([a-z0-9]+)'/g)].map((one) => one[1])
     expect(endings.length).toBeGreaterThan(10)
     expect(endings.filter((ending) => !SYSTEM.includes(ending)).sort()).toEqual([...declared].sort())
-    expect(declared.sort()).toEqual(['backup', 'bear2bk', 'enex', 'jex', 'textpack'])
+    expect(declared.sort()).toEqual(['backup', 'bear2bk', 'enex', 'fdx', 'fountain', 'jex', 'textpack'])
   })
 
   it('are said to be read, not owned: each a kind of Nib’s own naming that is data, under the imported kinds', () => {
     const imported = /<key>UTImportedTypeDeclarations<\/key>\s*<array>([\s\S]*?)\n\t<\/array>/.exec(plist)?.[1] ?? ''
-    expect((imported.match(/<key>UTTypeIdentifier<\/key>\s*<string>app\.nib\.import\.[a-z-]+<\/string>/g) ?? []).length).toBe(5)
-    expect((imported.match(/<string>public\.data<\/string>/g) ?? []).length).toBe(5)
+    expect((imported.match(/<key>UTTypeIdentifier<\/key>\s*<string>app\.nib\.import\.[a-z-]+<\/string>/g) ?? []).length).toBe(7)
+    expect((imported.match(/<string>public\.data<\/string>/g) ?? []).length).toBe(7)
     expect(plist).not.toContain('UTExportedTypeDeclarations')
     expect(plist).not.toContain('CFBundleDocumentTypes')
   })
@@ -154,6 +156,14 @@ describe('the files the import control can be handed on an iPhone', () => {
 /** What site/privacy.html promises: a constant changed here makes a published promise false until the page says so too. */
 describe('what the privacy policy promises', () => {
   const policy = read('site/privacy.html')
+
+  it('says invitations to write and the daily reminder are made on the device, and what makes them sends nothing', () => {
+    expect(policy).toContain('The daily reminder and invitations to write are made on your device too.')
+    expect(policy).toContain('Nothing about them is sent to us or to anyone else. With Lock Nib on, no line names a book.')
+    for (const file of ['src/lib/invitations.ts', 'src/lib/invitationSwitch.ts', 'src/lib/dailyReminder.ts']) {
+      expect(read(file)).not.toMatch(/\bfetch\(|XMLHttpRequest|sendBeacon|WebSocket/)
+    }
+  })
   const days = (ms: number) => ms / 86_400_000
   const word = (n: number) => ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][n - 1]
 
@@ -164,6 +174,24 @@ describe('what the privacy policy promises', () => {
 
   it('deletes a lapsed library when it says', () => {
     expect(policy).toContain(`your library is deleted from the server ${KEPT_MONTHS} months after that`)
+  })
+
+  it('deletes a file no device names, and keeps the record of what its check deleted, as long as it says', () => {
+    expect(policy).toContain(`A file that none of your devices has named for ${UNUSED_DAYS} days is deleted from the server`)
+    expect(policy).toContain('it keeps a record of that for a year:')
+    expect(KEPT_DAYS).toBe(365)
+    // What the record holds, and nothing more (worker/sweeps).
+    expect(policy).toContain('the file’s name on the server, its size, the identifier of the library folder it was in, why it was deleted, and when')
+    expect(read('worker/sweeps.ts')).toContain('CREATE TABLE IF NOT EXISTS gone (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, why TEXT NOT NULL, home TEXT NOT NULL, k TEXT NOT NULL, size INTEGER NOT NULL, left INTEGER NOT NULL)')
+  })
+
+  it('holds a draft read once, counts a link’s openings, and keeps a subscription’s record, as it says', () => {
+    expect(policy).toContain(`The copy is deleted from the server ${word(REVEALED_KEPT_MS / 60_000)} minutes later;`)
+    expect(policy).toContain(`once a day for each network it’s opened from and at most ${word(OPENS_PER_WIDE_PER_DAY)} times a day for the wider network around it`)
+    expect(policy).toContain(`That record is deleted ${KEPT_MONTHS} months after the subscription was last paid for`)
+    // Tries at a draft to be read once, and signed requests that fail: counted by network and by the wider one, for the day.
+    expect(policy).toContain('the server counts tries at the link for the day against the network they come from and the wider network around it')
+    expect(policy).toContain('If a signed request to send changes fails its check, the server counts it for the day against the library, the network it came from and the wider network around it')
   })
 
   it('offers links as long as it says', () => {
@@ -234,12 +262,12 @@ describe('what the privacy policy promises', () => {
     expect(policy).toContain('Importing reads the files you choose on your device, and sends nothing of them anywhere.')
     expect(policy).toContain('If a backup you import needs a password, as ColorNote’s can, Nib uses it on your device to open the file, and doesn’t keep it.')
     // What reads an import, and what opens a backup with its password, sends and stores nothing.
-    for (const file of ['src/lib/importApps.ts', 'src/lib/colornote.ts', 'src/lib/tar.ts', 'src/components/PasswordDialog.tsx']) {
+    for (const file of ['src/lib/importApps.ts', 'src/lib/colornote.ts', 'src/lib/tar.ts', 'src/lib/fdx.ts', 'src/lib/fountain.ts', 'src/components/PasswordDialog.tsx']) {
       expect(read(file)).not.toMatch(/\bfetch\(|XMLHttpRequest|sendBeacon|WebSocket|localStorage|sessionStorage|indexedDB|Preferences\b/)
     }
     expect(read('src/components/PasswordDialog.tsx')).toContain('on this device, and doesn’t keep it.')
     const settings = read('src/components/Settings.tsx')
-    const line = /Markdown, a Word document, or an export from ([^<]+)</.exec(settings)?.[1] ?? ''
+    const line = /Markdown, a Word document, a Fountain or Final Draft screenplay, or an export from ([^<]+)</.exec(settings)?.[1] ?? ''
     expect(line.split(/, | or /)).toEqual(['Simplenote', 'Bear', 'Evernote', 'Notesnook', 'Obsidian', 'Apple Notes', 'Google Keep', 'Joplin', 'UpNote', 'Zoho Notebook', 'FuseBase', 'ColorNote'])
     // Each is one the importer has words for.
     const importer = read('src/lib/importApps.ts')
@@ -465,6 +493,15 @@ describe('what the app tells the page', () => {
   })
 
   // The daily reminder has no snooze buttons: the device knows it by the start of its id, which is the page's to choose.
+  // Turning Lock Nib on takes down what's already shown and renames what's waiting, the daily slot's too: an invitation may name a book.
+  it('puts the daily slot’s line, as the page has it, on invitations waiting when Lock Nib is turned on', () => {
+    const line = read('src/lib/dailyReminder.ts').match(/export const DAILY_TITLE = '([^']+)'/)![1]
+    const plugin = app('NibRemindersPlugin.swift')
+    expect(plugin).toContain(`private static let dailyLine = "${line}"`)
+    expect(plugin).toContain('guard let names else { return true }')
+    expect(app('NibLockPlugin.swift')).toContain('NibRemindersPlugin.retitle(nil,')
+  })
+
   it('knows the daily reminder by the page’s own prefix', () => {
     const daily = read('src/lib/reminders.ts').match(/export const DAILY = '([^']+)'/)![1]
     expect(app('NibRemindersPlugin.swift')).toContain(`itemId.hasPrefix("${daily}")`)
@@ -582,5 +619,16 @@ describe('the launch frame', () => {
       expect(swift).toContain(`nib.heightAnchor.constraint(equalToConstant: ${height})`)
     }
     expect(html).toMatch(new RegExp(`\\.nib-mark \\{\\s*width: ${width}px;\\s*height: ${height}px;`))
+  })
+})
+
+// Seen on iOS 27 in the simulator and on a bare page in Safari, 2026-11-22: a word whose case changes in place while its
+// line is shown in capitals (text-transform) goes on being drawn in its old case once the line isn't. A change of display
+// with the change of element makes WebKit draw the text afresh.
+describe('a screenplay’s lines in capitals', () => {
+  it('are flow-root, so a line that leaves capitals is drawn as its text is', () => {
+    const css = read('src/index.css')
+    expect(css).toMatch(/\.nib-screenplay :is\(\.nib-sp-scene, \.nib-sp-character, \.nib-sp-transition\) \{\s*display: flow-root;/)
+    for (const element of ['scene', 'character', 'transition']) expect(css).toMatch(new RegExp(`\\.nib-sp-${element} \\{[^}]*text-transform: uppercase`))
   })
 })

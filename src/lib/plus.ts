@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { registerPlugin } from '@capacitor/core'
 import { SYNC_ORIGIN } from './hosts'
 import { nativeApp } from './platform'
+import { endingNotice } from './upsell'
+
+const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
  * Nib Plus is sold through the App Store only, so everything here goes through
@@ -154,15 +157,28 @@ export function usePlus(): [Entitlement, (entitlement: Entitlement) => void, boo
 export function useEntitled(subscription: Entitlement, known: boolean, plusUntil: number, setNotice: (notice: string) => void): Entitled {
   const pointsUntil = !subscription.active && plusUntil > Date.now() ? plusUntil : null
   // Ending while Nib is open, their features go then, and Nib says so.
+  // (Coins' days and the feedback gift's alike.)
   const [, setPlusEnded] = useState(0)
   useEffect(() => {
     if (!pointsUntil) return
     const timer = setTimeout(
       () => {
         setPlusEnded((ended) => ended + 1)
-        setNotice('Your days of Nib Plus from coins have ended.')
+        setNotice('Your days of Nib Plus have ended.')
       },
       Math.min(pointsUntil - Date.now(), 2 ** 31 - 1),
+    )
+    return () => clearTimeout(timer)
+  }, [pointsUntil, setNotice])
+  // The day before, said once (lib/upsell endingNotice): at once if that's now.
+  useEffect(() => {
+    if (!pointsUntil) return
+    const timer = setTimeout(
+      () => {
+        const notice = endingNotice(pointsUntil, Date.now())
+        if (notice) setNotice(notice)
+      },
+      Math.min(Math.max(0, pointsUntil - DAY_MS - Date.now()), 2 ** 31 - 1),
     )
     return () => clearTimeout(timer)
   }, [pointsUntil, setNotice])

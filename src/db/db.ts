@@ -1,4 +1,5 @@
 import type { Accent } from '../lib/look'
+import type { Posted } from '../lib/posted'
 import Dexie, { type EntityTable } from 'dexie'
 import type { JSONContent } from '@tiptap/react'
 
@@ -79,6 +80,8 @@ export interface Item {
   goal?: Goal | null
   /** Shared drafts. Unindexed. An empty list, not a missing one, means none, for the same reason as `goal`. */
   shares?: ShareRef[]
+  /** Nib Plus: its posts on the writer's blogs (lib/posted), one for each. Unindexed. An empty list, not a missing one, means none, as with `shares`. */
+  posted?: Posted[]
   /** The folder it's in, by name (lib/folders). Unindexed. Taken out of it is `null`, for the same reason as `goal`. */
   folder?: string | null
   /** Its categories (lib/folders). Unindexed. An empty list, not a missing one, means none, as with `shares`. */
@@ -89,6 +92,22 @@ export interface Item {
    * to another folder, as `null`, for the same reason as `goal`.
    */
   position?: number | null
+  /**
+   * Nib Plus, the corkboard (lib/manuscript): a page's one-line summary, on
+   * its card. Unindexed. Taken off is `null`, for the same reason as `goal`.
+   * None on a locked page: the vault seals only the text, so locking takes it
+   * off (db/items `lock`).
+   */
+  summary?: string | null
+  /** Nib Plus, the corkboard: how far along the chapter is. None, or `null` for taken off, is a draft. Unindexed. */
+  status?: 'revised' | 'done' | null
+  /**
+   * Nib Plus: a page written as a screenplay, its lines read as Fountain
+   * (lib/fountain). A page's only. Unindexed. Taken off is `null`, for the
+   * same reason as `goal`; a Nib from before it, which drops it, shows a page
+   * of plain lines.
+   */
+  screenplay?: true | null
   /** Stamps put on it from the Stampbook (lib/placed). Unindexed. An empty list, not a missing one, means none, as with `categories`. */
   stamps?: Placed[]
   /**
@@ -118,7 +137,7 @@ export interface Revision {
 /** What sync last sent or received for one record, under its hashed key. */
 export interface SyncRecord {
   k: string
-  type: 'item' | 'revision' | 'stamps' | 'folders' | 'looks'
+  type: 'item' | 'revision' | 'stamps' | 'folders' | 'looks' | 'submissions'
   id: string
   /** The server's sequence number for this record's latest version. */
   seq: number
@@ -142,7 +161,7 @@ export interface SyncRecord {
    * back the past (sync engine `apply`).
    */
   n?: number
-  /** For the stamps, the folders' settings and the saved looks: the server's copy, as this device last knew it (lib/collection, lib/folderSettings, lib/look, in their order), to send only when this device has more. */
+  /** For the stamps, the folders' settings, the saved looks and the submissions: the server's copy, as this device last knew it (lib/collection, lib/folderSettings, lib/look, lib/submissions, in their order), to send only when this device has more. */
   sum?: string
 }
 

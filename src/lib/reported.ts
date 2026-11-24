@@ -59,7 +59,7 @@ export const FEEDBACK_MAX = 4000
  * sent counts: the server takes counts from the one to a few past the other (worker/counts), and from no version
  * anyone cares to make up.
  */
-export const LATEST = '1.10.12'
+export const LATEST = '1.10.15'
 export const FIRST_COUNTED = '1.10.10'
 
 /** A version as Nib writes it, 1.10.09 for one. */

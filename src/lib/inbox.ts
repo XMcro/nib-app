@@ -3,13 +3,16 @@ import type { JSONContent } from '@tiptap/react'
 import type { Item, Kind } from '../db/db'
 import * as items from '../db/items'
 import { ATTACH_PROBLEMS, keepAttached } from '../editor/attach'
+import { asFolder } from './folders'
 import { DOC_BUDGET, allowedImageSrc, toDataUrl } from './image'
 import { withWebPage } from './importApps'
 import { keepOriginal, keepsFiles } from './originals'
+import { SPRINT_LENGTHS } from './sprint'
 import { countWords } from './stats'
-import { plainText, titleOf } from './text'
+import { plainText } from './text'
 import { isLocked } from './vault'
 import { notWrittenHere } from './writtenHere'
+import { nameOf } from './fountain'
 
 /**
  * Quick capture. The share extension and Shortcuts write captures to an inbox
@@ -57,7 +60,9 @@ interface NibInbox {
   targets(options: { targets: Target[] }): Promise<void>
   /** Whether Nib Plus is on: the share sheet takes a file that isn't a picture only with it. */
   plus(options: { active: boolean }): Promise<void>
-  /** nib://new-note and nib://new-page, from a widget or Shortcuts. */
+  /** What the widgets show (lib/widgets), as JSON; none takes it away. Kept without books or notes while Lock Nib is on (NibInboxPlugin.swift). */
+  widgets(options: { snapshot?: string }): Promise<void>
+  /** nib:// links (`linkAction`), from a widget or Shortcuts. */
   addListener(event: 'openUrl', listener: (event: { url: string }) => void): Promise<PluginListenerHandle>
 }
 
@@ -132,10 +137,10 @@ const takes = (item: Item) => !isLocked(item) && !item.readOnly && typeof item.a
  */
 export function shareTargets(documents: Item[]): Target[] {
   return documents
-    .filter((item) => takes(item) && titleOf(item.body) !== 'Untitled')
+    .filter((item) => takes(item) && nameOf(item) !== 'Untitled')
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, TARGETS)
-    .map((item) => ({ id: item.id, title: titleOf(item.body).slice(0, TITLE), kind: item.kind }))
+    .map((item) => ({ id: item.id, title: nameOf(item).slice(0, TITLE), kind: item.kind }))
 }
 
 /**
@@ -202,9 +207,31 @@ async function drain(addToOpen: (id: string, content: JSONContent[]) => boolean,
   return saved.length + added
 }
 
-/** What a nib:// link asks for, or null for one Nib does not know. */
-export function linkAction(url: string): 'new-note' | 'new-page' | null {
+export type LinkAction = 'new-note' | 'new-page' | 'plus' | { open: string } | { book: string } | { sprint: number }
+
+/**
+ * What a nib:// link asks for, or null for one Nib does not know: a new note
+ * or page, a document by its id (nib://open/<id>), a book by its folder's
+ * name (nib://book/<name>, its slashes and all encoded), or the Plus screen
+ * (nib://plus, from a widget that's with Plus), from the widgets; or a sprint
+ * of one of its lengths (nib://sprint/25), from Shortcuts.
+ */
+export function linkAction(url: string): LinkAction | null {
   if (url === 'nib://new-note') return 'new-note'
   if (url === 'nib://new-page') return 'new-page'
+  if (url === 'nib://plus') return 'plus'
+  const sprint = /^nib:\/\/sprint\/(\d{1,3})$/.exec(url)
+  if (sprint && SPRINT_LENGTHS.includes(Number(sprint[1]))) return { sprint: Number(sprint[1]) }
+  const opened = /^nib:\/\/open\/([\w-]{1,100})$/.exec(url)
+  if (opened) return { open: opened[1] }
+  const book = /^nib:\/\/book\/([^/?#]{1,2000})$/.exec(url)
+  if (book) {
+    try {
+      const folder = asFolder(decodeURIComponent(book[1]))
+      if (folder) return { book: folder }
+    } catch {
+      // Not encoded as a name is: no book.
+    }
+  }
   return null
 }

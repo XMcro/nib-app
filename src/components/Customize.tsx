@@ -33,6 +33,14 @@ import paperIcon from '../assets/icons/paper.png'
 import blue from '../assets/icons/blue.png'
 import green from '../assets/icons/green.png'
 import rose from '../assets/icons/rose.png'
+import vellumIcon from '../assets/icons/vellum.png'
+import sageIcon from '../assets/icons/sage.png'
+import lilacIcon from '../assets/icons/lilac.png'
+import emberIcon from '../assets/icons/ember.png'
+import tideIcon from '../assets/icons/tide.png'
+import merlotIcon from '../assets/icons/merlot.png'
+import nibPlusIcon from '../assets/icons/nib-plus.png'
+import inkwellIcon from '../assets/icons/inkwell.png'
 
 /** The home-screen icons (ios Assets.xcassets): the standard one, and each alternate by its asset name. */
 const ICONS = [
@@ -41,6 +49,14 @@ const ICONS = [
   { name: 'AppIcon-Blue', label: 'Blue', src: blue },
   { name: 'AppIcon-Green', label: 'Green', src: green },
   { name: 'AppIcon-Rose', label: 'Rose', src: rose },
+  { name: 'AppIcon-Vellum', label: 'Vellum', src: vellumIcon },
+  { name: 'AppIcon-Sage', label: 'Sage', src: sageIcon },
+  { name: 'AppIcon-Lilac', label: 'Lilac', src: lilacIcon },
+  { name: 'AppIcon-Ember', label: 'Ember', src: emberIcon },
+  { name: 'AppIcon-Tide', label: 'Tide', src: tideIcon },
+  { name: 'AppIcon-Merlot', label: 'Merlot', src: merlotIcon },
+  { name: 'AppIcon-NibPlus', label: 'Nib Plus', src: nibPlusIcon },
+  { name: 'AppIcon-Inkwell', label: 'Inkwell', src: inkwellIcon },
 ]
 
 /**

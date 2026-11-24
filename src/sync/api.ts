@@ -21,6 +21,8 @@ export type Api = {
   requireSigned(on: boolean): Promise<Status>
   /** Which files the server has, by their keys, and the room they take of what they may. */
   files(): Promise<FileList>
+  /** Says which files this device's documents use, by their keys, a thousand at most; `done`: that's all of them (sync/files `nameFiles`). */
+  nameFiles(keys: string[], done: boolean): Promise<void>
   /** A file, sealed (sync/files), kept on the server under `key` (worker/files). */
   putFile(key: string, sealed: Uint8Array<ArrayBuffer>): Promise<void>
   /** As it was sent; null if the server has none under `key`. */
@@ -159,11 +161,13 @@ export function httpApi(base: string, keys: SyncKeys, ending?: () => AbortSignal
     return done
   }
   return {
-    // The old way: a library just made has no key for signed requests yet.
-    create: async (jws) => noKey(answer<Status>(await send('POST', '/v1/library', { jws }, 'bearer'))),
+    // The old way: a library just made has no key for signed requests yet. So this device's goes with it, proved as
+    // at /v1/key, and the library is never without one; a server from before this takes it at the next request, as ever.
+    create: async (jws) => noKey(answer<Status>(keys.sign ? await send('POST', '/v1/library', { jws, key: keys.sign.publicKey }, 'enrol') : await send('POST', '/v1/library', { jws }, 'bearer'))),
     entitle: (jws) => call('POST', '/v1/entitlement', { jws }),
     status: () => call('GET', '/v1/status'),
-    changes: (since) => call('GET', `/v1/changes?since=${since}`),
+    // `names=1`: this Nib says which files its documents use (`nameFiles`), which the server waits to hear of every device before it takes one for unused.
+    changes: (since) => call('GET', `/v1/changes?since=${since}&names=1`),
     push: (records) => call('POST', '/v1/changes', { records }),
     expire: (keys) => call('POST', '/v1/expire', { keys }),
     wipe: async () => noKey(await call('DELETE', '/v1/library')),
@@ -172,6 +176,7 @@ export function httpApi(base: string, keys: SyncKeys, ending?: () => AbortSignal
       return call('POST', '/v1/signed-only', { on })
     },
     files: () => call('GET', '/v1/files'),
+    nameFiles: (keys, done) => call('POST', '/v1/files/used', { keys, done }),
     putFile: (key, sealed) => call('PUT', `/v1/files/${key}`, sealed),
     getFile: async (key) => {
       const sent = await sending('GET', `/v1/files/${key}`)

@@ -2,7 +2,7 @@ import { ok, type Call } from './answer'
 import { base64url } from './base64'
 import { isAdmin, isJson, json, networksOf, readJson } from './http'
 import type { Sql } from './library'
-import { coinsMessage } from './signing'
+import { coinsMessage, COINS_PUBLIC_KEY } from './signing'
 import { CLAIM, COIN_REFUSED, endOfDay, MAX_COINS, realDay, utcDay, type CoinRefusal } from './wire.mjs'
 
 /**
@@ -143,15 +143,29 @@ export type CoinDeps = {
   coins: CoinRequests
   /** COINS_ADMIN: the secret that makes, reads and ends codes. Unset, they're not served. */
   admin: string | undefined
-  /** COINS_SIGNING_KEY: the Ed25519 key a code's coins are signed with, base64 of its PKCS#8. Unset (local development), they go unsigned. */
+  /** COINS_SIGNING_KEY: the Ed25519 key a code's coins are signed with, base64 of its PKCS#8. */
   signingKey?: string
+  /** The public half the app checks them with, which that key must be the pair of: COINS_PUBLIC_KEY, but in a test. */
+  checkedWith?: string
+  /** Local development (`wrangler dev`): with no key to sign with, coins go unsigned. Anywhere else, none are given without one. */
+  local?: boolean
   /** COINS_LIMIT: Cloudflare's rate limit, by network. Not there (tests, `wrangler dev`), nothing is limited. */
   limiter?: { limit(options: { key: string }): Promise<{ success: boolean }> }
 }
 
+/**
+ * The coins' key, to sign with: throws if `secret` isn't one, or isn't the pair of the key the app checks with
+ * (`checkedWith`). A key that signs and isn't that one, another pasted at a rotation, signed every answer with a
+ * signature the app refuses, each one a use counted (found checking the fix of the server audit of 2026-11-23).
+ */
+async function signingKey(secret: string, checkedWith: string): Promise<CryptoKey> {
+  const key = await crypto.subtle.importKey('pkcs8', Uint8Array.from(atob(secret), (c) => c.charCodeAt(0)), { name: 'Ed25519' }, true, ['sign'])
+  if (((await crypto.subtle.exportKey('jwk', key)) as JsonWebKey).x !== checkedWith) throw new Error('Not the key the app checks with.')
+  return key
+}
+
 /** `message` signed with the coins' key, in base64url: the app checks it with the public half it holds. */
-async function sign(secret: string, message: string): Promise<string> {
-  const key = await crypto.subtle.importKey('pkcs8', Uint8Array.from(atob(secret), (c) => c.charCodeAt(0)), { name: 'Ed25519' }, false, ['sign'])
+async function sign(key: CryptoKey, message: string): Promise<string> {
   const signature = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key, new TextEncoder().encode(message)))
   return base64url(signature)
 }
@@ -173,11 +187,21 @@ export async function handleCoins(request: Request, deps: CoinDeps): Promise<Res
     // guessed at as many times over as it had addresses (the red-team review of 2026-11-17).
     const limited = await Promise.all(networks.map((key) => deps.limiter?.limit({ key }).catch(() => null)))
     if (limited.some((one) => one?.success === false)) return answer({ status: COIN_REFUSED['too many'], body: { error: 'too many' } })
+    // The key first, before the code's use is counted: counted and then not signed (the key malformed, pasted wrong
+    // at a rotation; or none set), every redemption spent a use and gave nothing the app believes, and a day on,
+    // asked again, its claim was "used up" (the server audit of 2026-11-23). Asked again once it's put right, it's given.
+    let key: CryptoKey | null = null
+    try {
+      if (deps.signingKey) key = await signingKey(deps.signingKey, deps.checkedWith ?? COINS_PUBLIC_KEY)
+    } catch {
+      console.error('Nib: COINS_SIGNING_KEY is not a key that signs, or not the one the app checks with')
+    }
+    if (!key && !(deps.local && !deps.signingKey)) return json(request, 503, { error: 'Codes can’t be taken just now.' })
     const redeemed = await deps.coins.redeem(body.code, body.claim, networks)
-    if (redeemed.status !== 200 || !deps.signingKey) return answer(redeemed)
+    if (redeemed.status !== 200 || !key) return answer(redeemed)
     // Signed, so coins that didn't come from here (a proxy on the device, say) aren't believed.
     const { coins } = redeemed.body as { coins: number }
-    return json(request, 200, { coins, sig: await sign(deps.signingKey, coinsMessage(body.code, body.claim, coins)) })
+    return json(request, 200, { coins, sig: await sign(key, coinsMessage(body.code, body.claim, coins)) })
   }
   if (!(await isAdmin(request, deps.admin))) return json(request, 404, { error: 'Not found.' })
   if (pathname === '/v1/coins/codes' && request.method === 'POST') {

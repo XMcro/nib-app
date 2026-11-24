@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import type { Item } from '../db/db'
-import { aboutWords, asPosition, bookOf, bookTitle, chaptersOf, moveChapter, partPage, partsOf, rememberedAuthor, runningHead, titlePage, withSceneBreaks } from './manuscript'
+import { aboutWords, asPosition, asStatus, asSummary, bookOf, bookTitle, chaptersOf, moveChapter, partPage, partsOf, progressOf, rememberedAuthor, runningHead, titlePage, withSceneBreaks } from './manuscript'
 
 let made = 0
 function page(fields: Partial<Item> & { id: string }): Item {
@@ -159,5 +159,25 @@ describe('standard manuscript format', () => {
     const body = { type: 'doc', content: [line('She left.'), line('* * *'), line('***'), line('#'), line('⁂'), line(' ~~~ '), line('*Not* a break'), { type: 'paragraph' }, { type: 'heading', content: [{ type: 'text', text: '***' }] }] }
     const broken = { type: 'paragraph', attrs: { textAlign: 'center' }, content: [{ type: 'text', text: '#' }] }
     expect(withSceneBreaks(body).content).toEqual([line('She left.'), broken, broken, broken, broken, broken, line('*Not* a break'), { type: 'paragraph' }, body.content[8]])
+  })
+})
+
+describe('the corkboard’s summaries and statuses', () => {
+  it('keeps a summary as one line, at most 200 characters, and none for nothing', () => {
+    expect(asSummary('Mara\n\tfinds  the logbook.')).toBe('Mara finds the logbook.')
+    expect(asSummary('x'.repeat(250))).toHaveLength(200)
+    expect(asSummary(' \n ')).toBeNull()
+    expect(asSummary(null)).toBeNull()
+    expect(asSummary(7)).toBeUndefined()
+  })
+
+  it('knows revised and done, a draft being none', () => {
+    expect([asStatus('revised'), asStatus('done'), asStatus(null)]).toEqual(['revised', 'done', null])
+    expect([asStatus('draft'), asStatus('DONE'), asStatus(undefined)]).toEqual([undefined, undefined, undefined])
+  })
+
+  it('counts a book’s chapters by status, none set being a draft', () => {
+    const chapters = [{ status: 'done' }, { status: 'revised' }, {}, { status: null }, { status: 'done' }] as Item[]
+    expect(progressOf(chapters)).toEqual({ draft: 2, revised: 1, done: 2 })
   })
 })

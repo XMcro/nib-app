@@ -9,6 +9,7 @@ import { asSavedLooks, readSavedLooks, replaceSavedLooks, type SavedLooks } from
 import { isTime } from './time'
 import { allowedImageSrc, filterBodyImages, mapImageSrcs } from './image'
 import { readSort, SORTS, writeSort, type Sort } from './sort'
+import { asSubmissions, readSubmissions, replaceSubmissions, type Submissions } from './submissions'
 import { isTheme, readTheme, writeTheme, type Theme } from './theme'
 
 /**
@@ -46,6 +47,8 @@ export type BackupPreferences = {
   folders?: FolderSettings
   /** The saved looks (lib/look), when there are any, the deleted with them; not the look in use, which stays each device's. */
   looks?: SavedLooks
+  /** The submission tracker's (lib/submissions), when there are any, the deleted with them. */
+  submissions?: Submissions
 }
 
 /** The folders' settings, for a backup's preferences: none at all is left out, as it was before there were any. */
@@ -58,6 +61,12 @@ export function folderPreferences(): Pick<BackupPreferences, 'folders'> {
 export function savedLookPreferences(): Pick<BackupPreferences, 'looks'> {
   const looks = readSavedLooks()
   return Object.keys(looks).length > 0 ? { looks } : {}
+}
+
+/** The submissions, for a backup's preferences, the same way. */
+export function submissionPreferences(): Pick<BackupPreferences, 'submissions'> {
+  const submissions = readSubmissions()
+  return Object.keys(submissions).length > 0 ? { submissions } : {}
 }
 
 export type BackupFile = {
@@ -155,14 +164,18 @@ export function buildBackup(
 /**
  * The library as stored now, as a backup's file. `preferences`: App's own,
  * which it holds through a session even with storage off; for anyone else,
- * what is in storage.
+ * what is in storage. `keep`: the documents it holds, with their history, if
+ * not all (lib/backupFolder leaves out those kept on this device only).
  */
-export async function takeBackup(preferences: BackupPreferences = { theme: readTheme(), sort: readSort() }) {
+export async function takeBackup(preferences: BackupPreferences = { theme: readTheme(), sort: readSort() }, keep?: (item: Item) => boolean) {
   const at = Date.now()
-  const [records, history] = await Promise.all([listAll(), revisions.listAll()])
+  const [all, everyRevision] = await Promise.all([listAll(), revisions.listAll()])
+  const records = keep ? all.filter(keep) : all
+  const kept = new Set(records.map((record) => record.id))
+  const history = keep ? everyRevision.filter((entry) => kept.has(entry.itemId)) : everyRevision
   return {
     empty: records.length === 0 && history.length === 0,
-    content: serializeBackup(buildBackup(records, history, { ...preferences, ...folderPreferences(), ...savedLookPreferences() }, at)),
+    content: serializeBackup(buildBackup(records, history, { ...preferences, ...folderPreferences(), ...savedLookPreferences(), ...submissionPreferences() }, at)),
     filename: backupFilename(at),
     type: 'application/json;charset=utf-8',
   }
@@ -223,6 +236,8 @@ function asPreferences(raw: unknown): BackupPreferences {
   if (folders) preferences.folders = folders
   const looks = asSavedLooks(raw.looks)
   if (looks) preferences.looks = looks
+  const submissions = asSubmissions(raw.submissions)
+  if (submissions) preferences.submissions = submissions
   return preferences
 }
 
@@ -273,4 +288,6 @@ export async function putBack(backup: Pick<BackupFile, 'items' | 'revisions' | '
   if (folders) replaceFolderSettings(folders)
   const looks = asSavedLooks(backup.preferences.looks)
   if (looks) replaceSavedLooks(looks)
+  const submissions = asSubmissions(backup.preferences.submissions)
+  if (submissions) replaceSubmissions(submissions)
 }

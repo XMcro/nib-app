@@ -1,6 +1,6 @@
 import { Refused } from '../../worker/answer'
 import { sealPost, type Post } from '../../worker/inbox-seal'
-import { Library } from '../../worker/library'
+import { inboxTold, Library } from '../../worker/library'
 import { sqlite } from '../../worker/testing'
 import { SyncHttpError, type Api, type Wire } from './api'
 
@@ -38,6 +38,7 @@ export function fakeServer({ filesLimit }: { filesLimit?: number } = {}) {
     wipe: async () => void library.wipe(AUTH, Date.now()),
     requireSigned: async (on) => library.requireSigned(AUTH, on, Date.now()),
     files: async () => refusing(() => library.files(AUTH, Date.now())),
+    nameFiles: async (keys, done) => refusing(() => void library.namedFiles(AUTH, keys, done, Date.now())),
     putFile: async (key, sealed) =>
       refusing(() => {
         library.fileRoom(AUTH, key, sealed.length, Date.now())
@@ -50,7 +51,7 @@ export function fakeServer({ filesLimit }: { filesLimit?: number } = {}) {
         library.removeFile(AUTH, key, Date.now())
         files.delete(key)
       }),
-    inbox: async () => refusing(() => library.inbox(AUTH, Date.now())),
+    inbox: async () => inboxTold(library, AUTH, Date.now()).catch((error: unknown) => refusing(() => { throw error })),
     setInbox: async (key, address, kept) => refusing(() => void library.setInbox(AUTH, key, address, kept, Date.now())),
     endInbox: async () => refusing(() => void library.endInbox(AUTH, Date.now())),
     tookPosts: async (ids) => refusing(() => void library.tookPosts(AUTH, ids, Date.now())),

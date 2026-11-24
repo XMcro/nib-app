@@ -12,11 +12,22 @@ describe('themes', () => {
     expect(readTheme()).toBe('system')
   })
 
-  it('has eleven named themes, four of them Nib Plus, the last in its badge’s colours', () => {
+  it('has eighteen named themes, three free and fourteen Nib Plus (four moved 2026-11-20), and Winter earned', () => {
     // Winter is earned, not bought: a light one, never Plus's (lib/rewards gives it).
     expect(named('winter')).toMatchObject({ dark: false, plus: false })
     expect(effectiveTheme('winter', { active: false, known: true })).toBe('winter')
-    expect(NAMED.filter((one) => one.plus).map((one) => one.id)).toEqual(['purple-green', 'alien-pink', 'drcl', 'nib-plus'])
+    expect(NAMED.filter((one) => !one.plus).map((one) => one.id)).toEqual(['midnight-blue', 'clean-blue', 'cream-soda', 'winter'])
+    expect(NAMED.filter((one) => one.plus).map((one) => one.id)).toEqual(['gruvbox-dark', 'green-olive', 'gruvbox-light', 'pastel-pink', 'purple-green', 'alien-pink', 'drcl', 'nib-plus', 'vellum', 'sage', 'lilac', 'ember', 'tide', 'merlot'])
+    // Asked for 2026-11-20, each light one with a dark partner.
+    expect(NAMED.filter((one) => ['vellum', 'sage', 'lilac', 'ember', 'tide', 'merlot'].includes(one.id)).map((one) => [one.label, one.dark])).toEqual([
+      ['Vellum', false],
+      ['Sage', false],
+      ['Lilac', false],
+      ['Ember', true],
+      ['Tide', true],
+      ['Merlot', true],
+    ])
+    expect(NAMED).toHaveLength(18)
     expect(themeLabel('drcl')).toBe('drcl')
     // Asked for 2026-11-13: the badge's graphite, its nib's white, and its glow's periwinkle.
     expect(named('nib-plus')).toMatchObject({ label: 'Nib Plus', dark: true, plus: true })

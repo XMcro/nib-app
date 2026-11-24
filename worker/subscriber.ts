@@ -1,6 +1,6 @@
-import { answered, ok, Refused } from './answer'
+import { answered, ok, Refused, type Call } from './answer'
 import type { Sql } from './library'
-import { extendsPaid } from './paid'
+import { extendsPaid, keptTo } from './paid'
 
 export const MAX_LIVE_SHARES = 50
 /** Sync libraries one subscription pays for: a household's worth of devices, several times over. */
@@ -10,6 +10,22 @@ export const MAX_LIBRARIES = 5
  * have likely stopped syncing it, and only they have the code to delete it.
  */
 export const LIBRARY_IDLE_MS = 60 * 86_400_000
+/**
+ * New shares, and new sync libraries, one subscription makes in a day. Each one made and then revoked or deleted
+ * leaves a mark of itself for good, and nothing bounded how many: revoking a share frees its place at once, and
+ * so does deleting a library (the server audit of 2026-11-23). Far past what anyone shares or sets up in a day.
+ */
+export const NEW_SHARES_PER_DAY = 200
+export const NEW_LIBRARIES_PER_DAY = 20
+const DAY_MS = 86_400_000
+/**
+ * Past a refunded purchase's own date, and the newest one's, before the year they're kept is counted: a receipt
+ * for the refunded purchase must find this still here to be refused, and its end is a period from a date that
+ * Apple may put up to a day either side of where this reckons it.
+ */
+const PURCHASE_MARGIN_MS = 2 * DAY_MS
+/** The longest a purchase's receipt runs past when it was bought: a year's subscription, in a leap year. */
+const LONGEST_PERIOD_MS = 366 * DAY_MS
 const REVOKED = 'This App Store purchase was refunded or revoked, so it no longer pays for Nib Plus.'
 
 /**
@@ -18,12 +34,28 @@ const REVOKED = 'This App Store purchase was refunded or revoked, so it no longe
  * Refunded or revoked (index.ts hears from the App Store), nothing bought up
  * to then pays for anything, whatever receipt from before turns up. A renewal
  * or purchase made since does: Apple files it under the same id.
+ *
+ * Kept KEPT_MONTHS past the last it was paid to, and then deleted, tables and
+ * all (`forgetAt`, `retireSubscriber`): it was kept for ever, for everyone the
+ * App Store had ever told of, with the ids of libraries long deleted (the
+ * server audit of 2026-11-23). So its tables are made when it's first asked
+ * anything, not with the object, and made again if it's asked after.
  */
 export class Subscriber {
-  private sql: Sql
+  private raw: Sql
+  private made = false
 
   constructor(sql: Sql) {
-    this.sql = sql
+    this.raw = sql
+  }
+
+  private get sql(): Sql {
+    if (!this.made) this.tables()
+    return this.raw
+  }
+
+  private tables() {
+    const sql = this.raw
     sql.run('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v)')
     sql.run('CREATE TABLE IF NOT EXISTS shares (slug TEXT PRIMARY KEY, expires INTEGER NOT NULL)')
     sql.run('CREATE TABLE IF NOT EXISTS libraries (id TEXT PRIMARY KEY, renewed INTEGER NOT NULL)')
@@ -33,10 +65,44 @@ export class Subscriber {
     if (!has('shares', 'claim')) sql.run('ALTER TABLE shares ADD COLUMN claim INTEGER NOT NULL DEFAULT 0')
     if (!has('libraries', 'claim')) sql.run('ALTER TABLE libraries ADD COLUMN claim INTEGER NOT NULL DEFAULT 0')
     if (!has('libraries', 'was')) sql.run('ALTER TABLE libraries ADD COLUMN was INTEGER')
+    this.made = true
+  }
+
+  /**
+   * When this is to be deleted if nothing is heard of the subscription again, null for an object holding
+   * nothing at all (never asked, or deleted already). KEPT_MONTHS past the latest it knows of (what it's paid
+   * to, its newest purchase, the purchase a refund was of, a library's last receipt) and its grace, which is past
+   * the end of any receipt it would have to refuse: a subscription's period is a year at most. Not while a draft
+   * it shared is still live. One that holds nothing is due at once.
+   */
+  forgetAt(now: number): number | null {
+    if (!this.exists()) return null
+    const at = (key: string, margin = 0) => {
+      const value = this.get(key)
+      return typeof value === 'number' ? value + margin : 0
+    }
+    const renewed = Number(this.sql.all('SELECT MAX(renewed) AS at FROM libraries')[0].at ?? 0)
+    const live = Number(this.sql.all('SELECT MAX(expires) AS at FROM shares WHERE expires > ?', now)[0].at ?? 0)
+    // From a refunded purchase's date, the longest its receipt can run: this may never have been told how far it did
+    // (`most`: a record from before that was kept, a renewal it heard of only as refunded).
+    // And from when a refund came, as a library it paid for counts (worker/library `deletesAt`), so that this is
+    // here for as long as that library is: gone first, a receipt of the refunded purchase was taken for the library again.
+    const dates = [renewed, at('expires'), at('most'), at('revoked', LONGEST_PERIOD_MS + PURCHASE_MARGIN_MS), at('purchased', PURCHASE_MARGIN_MS), at('refunded', PURCHASE_MARGIN_MS)]
+    return Math.max(keptTo(Math.max(0, ...dates)), live)
+  }
+
+  /** Its object's storage has been deleted (`retireSubscriber`): asked again, it starts with nothing. */
+  forgotten() {
+    this.made = false
+  }
+
+  /** Whether anything has been kept here: asked only to read, an object that holds nothing is left holding nothing. */
+  private exists(): boolean {
+    return this.made || this.raw.all("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").length > 0
   }
 
   private get(key: string) {
-    return this.sql.all('SELECT v FROM meta WHERE k = ?', key)[0]?.v
+    return this.exists() ? this.sql.all('SELECT v FROM meta WHERE k = ?', key)[0]?.v : undefined
   }
 
   private set(key: string, value: number) {
@@ -45,6 +111,15 @@ export class Subscriber {
 
   private raise(key: string, value: number) {
     this.sql.run('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v = MAX(v, excluded.v)', key, value)
+  }
+
+  /** One more of `what` made today (UTC), refused with `refusal` past `most`. */
+  private madeToday(what: 'shares' | 'libraries', most: number, now: number, refusal: string) {
+    const today = Math.floor(now / DAY_MS)
+    const made = this.get(`${what} day`) === today ? Number(this.get(`${what} made`) ?? 0) : 0
+    if (made >= most) throw new Refused(429, refusal)
+    this.set(`${what} day`, today)
+    this.set(`${what} made`, made + 1)
   }
 
   /**
@@ -65,8 +140,19 @@ export class Subscriber {
   /** A verified receipt. Only ever extends: a stale one from another device can't cut a renewal short. */
   entitle(expiresAt: number, purchasedAt = 0): number {
     this.payingStill(purchasedAt)
-    if (extendsPaid(this.expiresAt(), expiresAt)) this.set('expires', expiresAt)
+    this.paidTill(expiresAt)
     return this.expiresAt()!
+  }
+
+  /**
+   * Paid to `expiresAt`, if that is further than it was. And the furthest any receipt it took ever ran to (`most`),
+   * which a refund doesn't take back as it does `expires`: this is kept past the end of every receipt it has taken
+   * (`forgetAt`), so that one of a refunded purchase finds it still here to be refused. Gone sooner, where another
+   * subscription kept the library on, that receipt was taken for the library again.
+   */
+  private paidTill(expiresAt: number) {
+    if (extendsPaid(this.expiresAt(), expiresAt)) this.set('expires', expiresAt)
+    this.raise('most', expiresAt)
   }
 
   /** What the App Store says this is paid to, renewed or come to its end, and the libraries it pays for, used lately or not, to tell. */
@@ -90,6 +176,7 @@ export class Subscriber {
     }
     const live = Number(this.sql.all('SELECT COUNT(*) AS live FROM shares')[0].live)
     if (live >= MAX_LIVE_SHARES) throw new Refused(429, `You can have ${MAX_LIVE_SHARES} drafts shared at once. Revoke one to share another.`)
+    this.madeToday('shares', NEW_SHARES_PER_DAY, now, 'You’ve shared as many drafts as one day takes. Try again tomorrow.')
     this.sql.run('INSERT INTO shares (slug, expires, claim) VALUES (?, ?, 1)', slug, expires)
     return true
   }
@@ -99,8 +186,9 @@ export class Subscriber {
     return Number(this.sql.all('SELECT claim FROM shares WHERE slug = ?', slug)[0]?.claim ?? 0)
   }
 
-  /** Keeps the count right when a share's expiry moves. */
+  /** Keeps the count right when a share's expiry moves. Of one that holds nothing (deleted, `retireSubscriber`), nothing: asked, it isn't made again. */
   extend(slug: string, expires: number) {
+    if (!this.exists()) return
     this.sql.run('UPDATE shares SET expires = ? WHERE slug = ?', expires, slug)
   }
 
@@ -110,6 +198,7 @@ export class Subscriber {
    * second's share was made, the first's refused, and the first gave back the place the second's stood in.
    */
   release(slug: string, claim?: number) {
+    if (!this.exists()) return
     if (claim === undefined) this.sql.run('DELETE FROM shares WHERE slug = ?', slug)
     else this.sql.run('DELETE FROM shares WHERE slug = ? AND claim = ?', slug, claim)
   }
@@ -118,12 +207,23 @@ export class Subscriber {
    * Counts a sync library against the cap, as it is made or renews. Only
    * libraries renewed in the last LIBRARY_IDLE_MS count; one back after that
    * takes a place like a new one. True if it took a place just now.
+   *
+   * `expiresAt`: what its receipt is paid to, kept as `entitle` keeps a share's. Without it, a subscription that
+   * only synced had no date but its purchase's and its last receipt's, was deleted a year past those while still
+   * renewing, and the App Store's word of a late renewal then reached no library (the server audit of 2026-11-23).
+   * `creating`: the library is being made, which is all the day's count is for: only one made leaves a mark for
+   * good. Counted for every claim, a device still sending its receipt for a deleted library used up the day. And
+   * counted for every one being made, whether or not its place is held already: a receipt sent for the same id at
+   * the same moment took the place uncounted, and the library was then made uncounted too.
    */
-  claimLibrary(id: string, now: number, purchasedAt = 0): boolean {
+  claimLibrary(id: string, now: number, purchasedAt = 0, { expiresAt, creating = false }: { expiresAt?: number; creating?: boolean } = {}): boolean {
     this.payingStill(purchasedAt)
+    if (expiresAt !== undefined) this.paidTill(expiresAt)
     const since = now - LIBRARY_IDLE_MS
     const held = this.sql.all('SELECT renewed FROM libraries WHERE id = ?', id)[0]
+    const making = () => creating && this.madeToday('libraries', NEW_LIBRARIES_PER_DAY, now, 'Too many new sync libraries for one day. Try again tomorrow.')
     if (held && Number(held.renewed) > since) {
+      making()
       // Counted on by this request too: no longer an earlier one's alone to give back.
       this.sql.run('UPDATE libraries SET renewed = ?, claim = claim + 1, was = NULL WHERE id = ?', now, id)
       return false
@@ -135,6 +235,7 @@ export class Subscriber {
         `One Nib Plus subscription syncs up to ${MAX_LIBRARIES} libraries at a time, and ${MAX_LIBRARIES} others have been in use in the last 60 days. Delete the server copy of one you no longer use, or try again once one has gone 60 days unused.`,
       )
     }
+    making()
     // One gone idle keeps when it was last renewed, to be put back as it was if this claim is refused.
     this.sql.run(
       'INSERT INTO libraries (id, renewed, claim, was) VALUES (?, ?, 1, NULL) ON CONFLICT (id) DO UPDATE SET was = renewed, renewed = excluded.renewed, claim = claim + 1',
@@ -156,6 +257,7 @@ export class Subscriber {
    * paid for that no refund could reach, and one receipt with the wrong code did it.
    */
   releaseLibrary(id: string, claim?: number) {
+    if (!this.exists()) return
     if (claim === undefined) return void this.sql.run('DELETE FROM libraries WHERE id = ?', id)
     const held = this.sql.all('SELECT claim, was FROM libraries WHERE id = ?', id)[0]
     if (!held || Number(held.claim) !== claim) return
@@ -171,8 +273,9 @@ export class Subscriber {
    * since, a renewal most often, goes on paying, and nothing is cut off: a
    * refund of last month stopped this month's sync until Nib was relaunched.
    */
-  revoke(through: number): { libraries: string[]; shares: string[] } {
+  revoke(through: number, now = Date.now()): { libraries: string[]; shares: string[] } {
     this.raise('revoked', through)
+    this.raise('refunded', now)
     const newest = Number(this.get('purchased') ?? 0)
     if (newest > through) return { libraries: [], shares: [] }
     this.set('expires', 0)
@@ -195,32 +298,56 @@ export class Subscriber {
   }
 }
 
-/** A subscription's requests, for its Durable Object. */
-export function subscriberRequests(subscriber: Subscriber, clock: () => number = Date.now) {
+/** What a subscription does beyond its own tables: its alarm, for when it's to be deleted (null for none), and deleting it. */
+export type SubscriberEffects = { alarm(at: number | null): Promise<void>; deleteAll(): Promise<void> }
+
+/**
+ * A subscription's requests, for its Durable Object. Every one sets the alarm for when it's deleted (`forgetAt`),
+ * as the date moves with what's paid, and so that one from before there was an alarm gets it the first time it's asked.
+ */
+export function subscriberRequests(subscriber: Subscriber, clock: () => number = Date.now, effects: Pick<SubscriberEffects, 'alarm'> = { alarm: async () => {} }) {
+  async function asked(request: () => Call): Promise<Call> {
+    const answer = await answered(request)
+    await effects.alarm(subscriber.forgetAt(clock()))
+    return answer
+  }
   return {
-    entitle: (expiresAt: number, purchasedAt: number) => answered(() => ok({ expiresAt: subscriber.entitle(expiresAt, purchasedAt) })),
-    paidTo: (expiresAt: number, purchasedAt: number) => answered(() => ok({ libraries: subscriber.paidTo(expiresAt, purchasedAt) })),
-    expiry: () => answered(() => ok(subscriber.expiresAt())),
-    admit: (slug: string, expires: number, purchasedAt: number) => answered(() => ok({ admitted: true, added: subscriber.admit(slug, expires, clock(), purchasedAt), claim: subscriber.placeOf(slug) })),
+    entitle: (expiresAt: number, purchasedAt: number) => asked(() => ok({ expiresAt: subscriber.entitle(expiresAt, purchasedAt) })),
+    paidTo: (expiresAt: number, purchasedAt: number) => asked(() => ok({ libraries: subscriber.paidTo(expiresAt, purchasedAt) })),
+    expiry: () => asked(() => ok(subscriber.expiresAt())),
+    admit: (slug: string, expires: number, purchasedAt: number) => asked(() => ok({ admitted: true, added: subscriber.admit(slug, expires, clock(), purchasedAt), claim: subscriber.placeOf(slug) })),
     extend: (slug: string, expires: number) =>
-      answered(() => {
+      asked(() => {
         subscriber.extend(slug, expires)
         return ok({ extended: true })
       }),
     release: (slug: string, claim?: number) =>
-      answered(() => {
+      asked(() => {
         subscriber.release(slug, claim)
         return ok({ released: true })
       }),
-    claimLibrary: (id: string, purchasedAt: number) => answered(() => ok({ added: subscriber.claimLibrary(id, clock(), purchasedAt), claim: subscriber.claimOf(id) })),
+    claimLibrary: (id: string, purchasedAt: number, expiresAt?: number, creating = false) =>
+      asked(() => ok({ added: subscriber.claimLibrary(id, clock(), purchasedAt, { expiresAt, creating }), claim: subscriber.claimOf(id) })),
     releaseLibrary: (id: string, claim?: number) =>
-      answered(() => {
+      asked(() => {
         subscriber.releaseLibrary(id, claim)
         return ok({ released: true })
       }),
-    revoke: (through: number) => answered(() => ok(subscriber.revoke(through))),
-    unrevoke: (through: number, expiresAt: number) => answered(() => ok({ expiresAt: subscriber.unrevoke(through, expiresAt) })),
+    revoke: (through: number) => asked(() => ok(subscriber.revoke(through, clock()))),
+    unrevoke: (through: number, expiresAt: number) => asked(() => ok({ expiresAt: subscriber.unrevoke(through, expiresAt) })),
   }
+}
+
+/**
+ * A subscription's alarm, come due: if nothing has moved the date since (a renewal, a new purchase, a draft
+ * shared), what's kept of it is deleted, the object's storage with it. Asked of again, it starts with nothing.
+ */
+export async function retireSubscriber(subscriber: Subscriber, now: number, effects: SubscriberEffects) {
+  const at = subscriber.forgetAt(now)
+  if (at === null) return
+  if (at > now) return effects.alarm(at)
+  await effects.deleteAll()
+  subscriber.forgotten()
 }
 
 export type SubscriberRequests = ReturnType<typeof subscriberRequests>

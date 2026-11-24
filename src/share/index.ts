@@ -4,6 +4,7 @@ import type { Item, ShareRef } from '../db/db'
 import { withoutNotes } from '../editor/NoteToSelf'
 import { filterBodyImages, withoutAboutIn } from '../lib/image'
 import { linkTitle, withoutLines } from '../lib/links'
+import { withoutWritersLines } from '../lib/fountain'
 import { SERVER, SHARE_HOST } from '../lib/server'
 import { newShare, open, PASSWORD_MARK, revealCheck, revealToken, seal, withPassword } from './crypto'
 
@@ -54,7 +55,7 @@ function sealKey(share: Pick<ShareRef, 'slug' | 'key' | 'password'>): Promise<st
  * business. Notes to self are the writer's, and stay behind, as does what a
  * picture says about itself.
  */
-export function snapshot(item: Pick<Item, 'kind' | 'body'>) {
+export function snapshot(item: Pick<Item, 'kind' | 'body'> & Partial<Pick<Item, 'screenplay'>>) {
   const strip = (node: JSONContent): JSONContent => {
     if (node.type === 'noteLink') return { type: 'text', text: linkTitle(node) }
     if (node.type === 'image' && node.attrs?.drawing) {
@@ -63,7 +64,11 @@ export function snapshot(item: Pick<Item, 'kind' | 'body'>) {
     }
     return node.content ? { ...node, content: node.content.map(strip) } : node
   }
-  return { v: 1, kind: item.kind, body: strip(withoutLines(withoutNotes(withoutAboutIn(filterBodyImages(item.body))))) }
+  // A screenplay says so, for the reader to set it out as one (src/reader/script); a reader from before shows its lines as they are.
+  const screenplay = item.kind === 'page' && item.screenplay === true
+  const body = strip(withoutLines(withoutNotes(withoutAboutIn(filterBodyImages(item.body)))))
+  // A screenplay's own notes, sections, synopses and cut text are the writer's too (lib/fountain).
+  return { v: 1, kind: item.kind, ...(screenplay && { screenplay: true }), body: screenplay ? withoutWritersLines(body) : body }
 }
 
 async function call<T>(path: string, init: RequestInit & { owner?: string } = {}): Promise<T> {
@@ -84,7 +89,7 @@ async function call<T>(path: string, init: RequestInit & { owner?: string } = {}
  * receipt the share is free: FREE_DAYS, read-only, no password, not once.
  */
 export async function createShare(
-  item: Pick<Item, 'kind' | 'body'>,
+  item: Pick<Item, 'kind' | 'body'> & Partial<Pick<Item, 'screenplay'>>,
   days: number,
   jws: string | undefined,
   { password = '', once = false, now = Date.now() }: { password?: string; once?: boolean; now?: number } = {},

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { VaultError } from '../lib/vault'
 
@@ -55,6 +55,28 @@ describe('VaultDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Lock' }))
     expect(screen.getByRole('alert').textContent).toBe('At least 8 characters.')
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+})
+
+describe('VaultDialog, while a passcode is being tried', () => {
+  // The key takes half a second to make, and the button being off stops a tap, not Return: tried twice, the
+  // second ran as the first closed the dialog.
+  it('tries it once, however often it’s sent', async () => {
+    let finish = () => {}
+    const onSubmit = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)))
+    const onClose = vi.fn()
+    render(<VaultDialog mode="open" onSubmit={onSubmit} onClose={onClose} />)
+    await userEvent.type(screen.getByLabelText('Passcode'), 'harbour lights')
+    const form = screen.getByLabelText('Passcode').closest('form')!
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    finish()
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce())
+    expect(onSubmit).toHaveBeenCalledOnce()
+    // And again after it has answered, as a wrong passcode needs.
+    fireEvent.submit(form)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2))
   })
 })
 

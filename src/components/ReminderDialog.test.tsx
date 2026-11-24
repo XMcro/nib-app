@@ -7,7 +7,7 @@ import { ReminderDialog } from './ReminderDialog'
 afterEach(cleanup)
 
 const open = (props: Partial<Parameters<typeof ReminderDialog>[0]> = {}) => {
-  const handlers = { onSet: vi.fn(async () => {}), onClear: vi.fn(async () => {}), onClose: vi.fn() }
+  const handlers = { onSet: vi.fn(async () => {}), onClear: vi.fn(async () => {}), onClose: vi.fn(), repeats: true, onPlus: vi.fn() }
   render(<ReminderDialog {...handlers} {...props} />)
   return { ...handlers, ...props }
 }
@@ -33,6 +33,24 @@ describe('a reminder that repeats, in its dialog', () => {
     fireEvent.change(repeats(), { target: { value: '' } })
     await act(async () => fireEvent.click(screen.getByText('Set')))
     expect(onSet).toHaveBeenCalledWith(at, null)
+  })
+
+  // Moved to Plus 2026-11-20, for everyone: one that rings once stays free.
+  it('without Plus, keeps a repeat already set, or takes it off, and asks for Plus for a new one', async () => {
+    const at = new Date(Date.now() + 2 * 86_400_000).setHours(7, 15, 0, 0)
+    const { onSet, onPlus } = open({ current: at, repeat: 'month', repeats: false })
+    expect([...repeats().options].map((option) => option.textContent)).toEqual(['Doesn’t repeat', 'Daily · Nib Plus', 'Weekly · Nib Plus', 'Monthly', 'Yearly · Nib Plus'])
+    fireEvent.change(repeats(), { target: { value: 'week' } })
+    expect(onPlus).toHaveBeenCalledOnce()
+    expect(repeats().value).toBe('month')
+    await act(async () => fireEvent.click(screen.getByText('Set')))
+    expect(onSet).toHaveBeenLastCalledWith(at, 'month')
+    cleanup()
+
+    const fresh = open({ repeats: false })
+    fireEvent.change(repeats(), { target: { value: 'day' } })
+    expect(fresh.onPlus).toHaveBeenCalledOnce()
+    expect(repeats().value).toBe('')
   })
 })
 

@@ -5,9 +5,23 @@ import type { Claims } from './jws'
 import type { LibraryRequests } from './library'
 import { GRACE_MS } from './paid'
 import { EVERYONE, FreeQuota, quotaRequests } from './quota'
-import { expireShare, FREE_PER_DAY, FREE_PER_DAY_EVERYONE, FREE_PER_DAY_WIDE, NOTES_PER_READER_PER_DAY, NOTES_PER_MINUTE, NOTES_PER_WIDE_PER_DAY, Share, shareRequests } from './share'
+import {
+  expireShare,
+  FREE_PER_DAY,
+  FREE_PER_DAY_EVERYONE,
+  FREE_PER_DAY_WIDE,
+  NOTES_PER_READER_PER_DAY,
+  NOTES_PER_MINUTE,
+  NOTES_PER_WIDE_PER_DAY,
+  OPENS_PER_WIDE_PER_DAY,
+  REVEALED_KEPT_MS,
+  REVEALS_PER_NETWORK_PER_DAY,
+  REVEALS_PER_WIDE_PER_DAY,
+  Share,
+  shareRequests,
+} from './share'
 import { handleShares, READER_HEADERS, type ShareDeps } from './shares'
-import { MAX_LIVE_SHARES, Subscriber, subscriberRequests, type SubscriberRequests } from './subscriber'
+import { MAX_LIVE_SHARES, NEW_SHARES_PER_DAY, Subscriber, subscriberRequests, type SubscriberRequests } from './subscriber'
 import { handleSync } from './sync'
 import { memoryFiles, sqlite } from './testing'
 import { endOfDay, MAX_NOTE_LENGTH } from './wire.mjs'
@@ -34,10 +48,16 @@ function server({ off = false, blocked = [] as string[], secret = 'the-secret' }
   const subscriber: ShareDeps['subscriber'] = (key) => subscriberRequests(subscribers.get(key) ?? subscribers.set(key, new Subscriber(sqlite())).get(key)!, () => clock.now)
   const shareOf = (slug: string) => shares.get(slug) ?? shares.set(slug, new Share(sqlite())).get(slug)!
   const effects = (slug: string) => ({ subscriber, alarm: async (at: number | null) => void alarms.set(slug, at) })
+  /** How often the count everyone's free links share was asked to take one more. */
+  const everyone = { spends: 0 }
+  const quotaOf = (key: string) => quotaRequests(quotas.get(key) ?? quotas.set(key, new FreeQuota(sqlite())).get(key)!, { alarm: async () => {} }, () => clock.now)
   const deps: ShareDeps = {
     share: (slug) => shareRequests(shareOf(slug), effects(slug), () => clock.now),
     subscriber,
-    quota: (key) => quotaRequests(quotas.get(key) ?? quotas.set(key, new FreeQuota(sqlite())).get(key)!, { alarm: async () => {} }, () => clock.now),
+    quota: (key) => {
+      const quota = quotaOf(key)
+      return key === EVERYONE ? { ...quota, spend: (...args: Parameters<typeof quota.spend>) => (everyone.spends++, quota.spend(...args)) } : quota
+    },
     secret,
     verify: async (jws): Promise<Claims> => {
       const [, until, bought] = /^valid-until-(\d+)(?:-bought-(\d+))?$/.exec(jws) ?? []
@@ -58,7 +78,7 @@ function server({ off = false, blocked = [] as string[], secret = 'the-secret' }
   /** Without a receipt, from an IP address. */
   const createFree = (overrides: Record<string, unknown> = {}, ip = '203.0.113.7') =>
     request('/v1/shares', { method: 'POST', headers: { ...OWNED, 'CF-Connecting-IP': ip }, body: JSON.stringify({ slug: SLUG, doc: 'c2VhbGVk', ...overrides }) })
-  return { request, create, createFree, clock, alarms, paidUntil, deps, quotas, expire: () => expireShare(shareOf(SLUG), clock.now, effects(SLUG)) }
+  return { request, create, createFree, clock, alarms, paidUntil, deps, quotas, everyone, shareOf, expire: () => expireShare(shareOf(SLUG), clock.now, effects(SLUG)) }
 }
 
 const post = (body: unknown, headers: Record<string, string> = {}): RequestInit => ({ method: 'POST', headers, body: JSON.stringify(body) })
@@ -239,11 +259,47 @@ describe('a free share', () => {
     expect(() => quota.spend(Date.UTC(2027, 0, 1), FREE_PER_DAY, 'Too many')).not.toThrow()
   })
 
-  it('gives the day’s place back when the share can’t be made', async () => {
-    const { createFree } = server()
+  // A free link sure to be refused (its slug taken, or asked to be read once) was counted against all three
+  // quotas, the one everyone shares among them, and given back each time: a network's five a day never ran out,
+  // and nothing stopped its attempts reaching that one object (the server audit of 2026-11-23).
+  it('keeps a place spent when the share is refused, so a network’s attempts end with its day’s places', async () => {
+    const { createFree, everyone } = server()
     expect((await createFree()).status).toBe(201)
-    for (let i = 0; i < FREE_PER_DAY; i++) expect((await createFree()).status).toBe(409) // that slug is taken
-    expect((await createFree({ slug: 'T'.repeat(22) })).status).toBe(201)
+    const statuses = []
+    for (let i = 0; i < 2 * FREE_PER_DAY; i++) statuses.push((await createFree()).status) // that slug is taken
+    expect(statuses).toEqual([...Array(FREE_PER_DAY - 1).fill(409), ...Array(FREE_PER_DAY + 1).fill(429)])
+    // Refused by its own network's count, it reaches the one everyone shares no more.
+    expect(everyone.spends).toBe(FREE_PER_DAY)
+    expect((await createFree({ slug: 'T'.repeat(22) })).status).toBe(429)
+  })
+
+  // Refused by a wider count, the network's own place was given back each time: its few a day never ran out, and
+  // every attempt went on reaching the count everyone shares (found checking the fix, 2026-11-23).
+  it('keeps a network’s place spent when a wider count refuses it, so its attempts end there too', async () => {
+    const { createFree, deps, everyone } = server()
+    for (let i = 0; i < FREE_PER_DAY_EVERYONE; i++) await deps.quota(EVERYONE).spend(FREE_PER_DAY_EVERYONE, 'full')
+    everyone.spends = 0
+    const statuses = []
+    for (let i = 0; i < 3 * FREE_PER_DAY; i++) statuses.push((await createFree({ slug: String(i).padStart(22, 'w') }, '192.0.2.44')).status)
+    expect(statuses).toEqual(Array(3 * FREE_PER_DAY).fill(429))
+    expect(everyone.spends).toBe(FREE_PER_DAY)
+  })
+
+  it('refuses one asked to be read once before it’s counted against anyone', async () => {
+    const { createFree, everyone, quotas } = server()
+    for (let i = 0; i < 3 * FREE_PER_DAY; i++) expect((await createFree({ slug: String(i).padStart(22, 'r'), once: true })).status).toBe(403)
+    expect(everyone.spends).toBe(0)
+    expect(quotas.size).toBe(0)
+    expect((await createFree()).status).toBe(201)
+  })
+
+  it('gives the day’s place back when the share couldn’t be made at all', async () => {
+    const { createFree, deps } = server()
+    const real = deps.share
+    deps.share = (slug) => ({ ...real(slug), create: async () => ({ status: 503, body: { error: 'Away.' } }) })
+    for (let i = 0; i < 2 * FREE_PER_DAY; i++) expect((await createFree({ slug: String(i).padStart(22, 'u') })).status).toBe(503)
+    deps.share = real
+    expect((await createFree()).status).toBe(201)
   })
 
   it('stops with the kill switch, and can be taken down by slug', async () => {
@@ -343,6 +399,8 @@ describe('a body is read only as far as its route needs', () => {
     await create()
     expect((await request(`/v1/shares/${SLUG}/notes`, post({ note: 'a'.repeat(MAX_NOTE_LENGTH) }))).status).toBe(201)
     expect((await request(`/v1/shares/${SLUG}/notes`, post({ note: 'a'.repeat(4_000) }))).status).toBe(413)
+    // One over, said at the door, before it's counted against the reader.
+    expect(await request(`/v1/shares/${SLUG}/notes`, post({ note: 'a'.repeat(MAX_NOTE_LENGTH + 1) }))).toMatchObject({ status: 400, body: { error: 'That note is too long.' } })
   })
 
   it('reads a renewal only as far as a receipt goes', async () => {
@@ -511,7 +569,84 @@ describe('a share to be read once, over the wire', () => {
     expect((await request(`/v1/shares/${SLUG}`)).body).toMatchObject({ once: true })
     const revealed = await reveal({ token })
     expect([revealed.status, revealed.body.doc]).toEqual([200, 'c2VhbGVk'])
+  })
+
+  // Its answer lost on the way, the draft was gone unread (the server audit of 2026-11-23).
+  it('is handed to the same reader again for ten minutes, then deleted by its alarm, and never to another', async () => {
+    const { create, request, clock, alarms, expire, shareOf } = server()
+    const token = 'T'.repeat(43)
+    await create({ once: true, reveal: await sha256(token) })
+    const expires = clock.now + 30 * DAY
+    const reveal = (body?: unknown) => request(`/v1/shares/${SLUG}/reveal`, { method: 'POST', ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+    expect((await reveal({ token })).status).toBe(200)
+    expect(alarms.get(SLUG)).toBe(clock.now + REVEALED_KEPT_MS)
+    // The reader's page asked again, and its "try again": still there.
+    expect((await request(`/v1/shares/${SLUG}`)).body).toMatchObject({ once: true })
+    clock.now += REVEALED_KEPT_MS - 1
+    expect((await reveal({ token })).body.doc).toBe('c2VhbGVk')
+    // Another token, or none, is answered as before it was read (worker/share `reveal`).
+    expect((await reveal({ token: 'U'.repeat(43) })).status).toBe(404)
+    expect((await reveal()).status).toBe(404)
+    // Extended meanwhile, the alarm is still for the text first.
+    await request(`/v1/shares/${SLUG}`, { method: 'PATCH', headers: OWNED, body: JSON.stringify({ days: 90 }) })
+    expect(alarms.get(SLUG)).toBeLessThan(expires)
+    clock.now += 1
+    await expire()
+    expect(shareOf(SLUG).revealedDue()).toBeNull()
+    expect(alarms.get(SLUG)).toBe(clock.now - REVEALED_KEPT_MS + 90 * DAY + REVEALED_KEPT_MS - 1)
     expect((await reveal({ token })).status).toBe(410)
+    expect((await request(`/v1/shares/${SLUG}`)).status).toBe(410)
+    expect((await request(`/v1/shares/${SLUG}/notes`, { headers: OWNED })).body).toMatchObject({ once: true, opened: true })
+  })
+
+  // The route asks `read` first, which refused it once the hold was over, so the step that deletes the text was
+  // never reached: its alarm lost, the text stayed till the share expired (found checking the fix, 2026-11-23).
+  it('has its text deleted when it’s next asked for, though its alarm never came', async () => {
+    for (const ask of ['page', 'reveal']) {
+      const { create, request, clock, shareOf } = server()
+      const token = 'T'.repeat(43)
+      await create({ once: true, reveal: await sha256(token) })
+      expect((await request(`/v1/shares/${SLUG}/reveal`, { method: 'POST', body: JSON.stringify({ token }) })).status).toBe(200)
+      clock.now += REVEALED_KEPT_MS + 60_000
+      const asked = ask === 'page' ? await request(`/v1/shares/${SLUG}`) : await request(`/v1/shares/${SLUG}/reveal`, { method: 'POST', body: JSON.stringify({ token }) })
+      expect(asked.status).toBe(410)
+      expect(shareOf(SLUG).revealedDue()).toBeNull()
+    }
+  })
+
+  // A wrong token was answered as fast as it was asked, uncounted: the password of one could be guessed against
+  // the server at its own speed, by anyone the link had reached (the server audit of 2026-11-23).
+  it('counts the tries at one that asks for a token, per network, and gives a right one back', async () => {
+    const { create, request, quotas, clock } = server()
+    const token = 'T'.repeat(43)
+    await create({ once: true, reveal: await sha256(token) })
+    const reveal = (given: string, ip = '203.0.113.7') => request(`/v1/shares/${SLUG}/reveal`, { method: 'POST', headers: { 'CF-Connecting-IP': ip }, body: JSON.stringify({ token: given }) })
+    const statuses = []
+    for (let i = 0; i < REVEALS_PER_NETWORK_PER_DAY + 5; i++) statuses.push((await reveal('U'.repeat(43))).status)
+    expect(statuses).toEqual([...Array(REVEALS_PER_NETWORK_PER_DAY).fill(404), ...Array(5).fill(429)])
+    // Even the right one, from there, till tomorrow.
+    expect((await reveal(token)).status).toBe(429)
+    // From the next address in that wider network, the rest of what it gets, and no more.
+    const wider = []
+    for (let i = 0; i < REVEALS_PER_WIDE_PER_DAY; i++) wider.push((await reveal('U'.repeat(43), `203.0.113.${8 + (i % 200)}`)).status)
+    expect(wider.filter((one) => one === 404)).toHaveLength(REVEALS_PER_WIDE_PER_DAY - REVEALS_PER_NETWORK_PER_DAY)
+    expect(wider.at(-1)).toBe(429)
+    // The reader, elsewhere, opens it, and is counted for nothing.
+    const used = () => [...quotas.values()].reduce((sum, quota) => sum + quota.used(clock.now), 0)
+    const before = used()
+    expect((await reveal(token, '198.51.100.20')).status).toBe(200)
+    expect(used()).toBe(before)
+  })
+
+  it('counts nothing against anyone for a slug that isn’t a draft to be read once, or asks for no token', async () => {
+    const { create, request, quotas } = server()
+    const reveal = (slug: string) => request(`/v1/shares/${slug}/reveal`, { method: 'POST', headers: { 'CF-Connecting-IP': '203.0.113.7' }, body: JSON.stringify({ token: 'U'.repeat(43) }) })
+    expect((await reveal('N'.repeat(22))).status).toBe(404)
+    await create()
+    expect((await reveal(SLUG)).status).toBe(404)
+    await create({ slug: 'P'.repeat(22), once: true })
+    expect((await reveal('P'.repeat(22))).status).toBe(200)
+    expect(quotas.size).toBe(0)
   })
 
   it('takes a reveal hash only with `once`, and only as a hash', async () => {
@@ -603,6 +738,32 @@ describe('how many times a share has been opened, over the wire', () => {
     expect(await opens(blocked.request)).toBe(0)
   })
 
+  // Each network was counted once, and one wider network holds 65,536 of them: anyone with the link and a /48 could
+  // make the number mean nothing. And any website could add one for each of its visitors, by having their browsers
+  // ask for the draft's address (the server audit of 2026-11-23).
+  it('counts a wider network only a few times a day, however many networks in it ask', async () => {
+    const { create, request } = server()
+    await create()
+    for (let n = 0; n < 300; n++) expect((await request(`/v1/shares/${SLUG}`, from(`2001:db8:1:${n.toString(16)}::1`))).status).toBe(200)
+    expect(await opens(request)).toBe(OPENS_PER_WIDE_PER_DAY)
+    // Another wider network's readers are still counted.
+    await request(`/v1/shares/${SLUG}`, from('2001:db8:2:1::1'))
+    expect(await opens(request)).toBe(OPENS_PER_WIDE_PER_DAY + 1)
+  })
+
+  it('counts the reader page’s own asking, and not another site’s page having its visitors’ browsers ask', async () => {
+    const { create, request } = server()
+    await create()
+    await request(`/v1/shares/${SLUG}`, from('198.51.100.1', { 'Sec-Fetch-Site': 'cross-site' }))
+    await request(`/v1/shares/${SLUG}`, from('198.51.100.2', { 'Sec-Fetch-Site': 'same-site' }))
+    await request(`/v1/shares/${SLUG}`, from('198.51.100.3', { 'Sec-Fetch-Site': 'none' }))
+    expect(await opens(request)).toBe(0)
+    await request(`/v1/shares/${SLUG}`, from('198.51.100.1', { 'Sec-Fetch-Site': 'same-origin' }))
+    // A browser from before that was said says nothing, and is counted.
+    await request(`/v1/shares/${SLUG}`, from('198.51.100.2'))
+    expect(await opens(request)).toBe(2)
+  })
+
   it('counts nothing of a free share, and says nothing of counting to its reader', async () => {
     const { createFree, request } = server()
     expect((await createFree()).status).toBe(201)
@@ -610,5 +771,30 @@ describe('how many times a share has been opened, over the wire', () => {
     expect(read.body.doc).toBe('c2VhbGVk')
     expect('counted' in read.body).toBe(false)
     expect('opens' in (await request(`/v1/shares/${SLUG}/notes`, { headers: OWNED })).body).toBe(false)
+  })
+})
+
+// Revoking a share frees its place at once, so making one and revoking it could be done for ever, each leaving a
+// mark of itself for good (the server audit of 2026-11-23).
+describe('how many shares one subscription makes in a day', () => {
+  it('is bounded, however many are revoked, and starts again the next day', async () => {
+    const { create, request, clock } = server()
+    const slugOf = (n: number) => String(n).padStart(22, 'd')
+    const made = []
+    for (let n = 0; n < NEW_SHARES_PER_DAY + 3; n++) {
+      const created = await create({ slug: slugOf(n) })
+      made.push(created.status)
+      if (created.status === 201) expect((await request(`/v1/shares/${slugOf(n)}`, { method: 'DELETE', headers: OWNED })).status).toBe(200)
+    }
+    expect(made).toEqual([...Array(NEW_SHARES_PER_DAY).fill(201), 429, 429, 429])
+    clock.now += DAY
+    expect((await create({ slug: slugOf(9999) })).status).toBe(201)
+  })
+
+  it('doesn’t count one posted again, which keeps its place', async () => {
+    const { create } = server()
+    expect((await create()).status).toBe(201)
+    for (let n = 0; n < NEW_SHARES_PER_DAY + 3; n++) expect((await create()).status).toBe(409)
+    expect((await create({ slug: 'T'.repeat(22) })).status).toBe(201)
   })
 })

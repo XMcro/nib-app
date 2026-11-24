@@ -194,6 +194,12 @@ describe('sync requests', () => {
     vi.stubGlobal('fetch', server.fetch)
     await httpApi(BASE, keys).create('receipt')
     expect(server.seen[0]).toMatchObject({ path: '/v1/library', authorization: `Bearer ${keys.libraryId}.${keys.secret}` })
+    // With this device's key, and signed by it, so the library is never without one (worker/sync).
+    const init = server.fetch.mock.calls[0][1]
+    const headers = init.headers as Record<string, string>
+    expect(JSON.parse(init.body as string)).toEqual({ jws: 'receipt', key: keys.sign!.publicKey })
+    const message = signedMessage({ id: keys.libraryId, method: 'POST', path: '/v1/library', time: Number(headers['X-Nib-Time']), bodyHash: await bodyHash(new TextEncoder().encode(init.body as string)) })
+    expect(await verifySignature(keys.sign!.publicKey, headers['X-Nib-Signature'], message)).toBe(true)
     vi.unstubAllGlobals()
   })
 })

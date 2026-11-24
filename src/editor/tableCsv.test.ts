@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { getSchema } from '@tiptap/core'
 import type { JSONContent } from '@tiptap/react'
 import { nibExtensions } from './extensions'
+import { setInVault } from '../lib/text'
 import { MAX_CELLS, parseCsv, rowsOf, tableFromCsv, toCsv } from './tableCsv'
 
 const schema = getSchema(nibExtensions(true))
@@ -101,6 +102,10 @@ describe('a table’s rows', () => {
       cell([para(text('words'), { type: 'footnote', attrs: { text: 'kept back' } })]),
     )] }
     expect(rowsOf(schema.nodeFromJSON(table))).toEqual([['bold\nsecond', 'a\nb', 'see That note', 'words']])
+    // Locked since it was linked to, the link still holds its title: the file gave it out, where the page doesn't.
+    setInVault(new Set(['x']))
+    expect(rowsOf(schema.nodeFromJSON(table))[0][2]).toBe('see A locked note')
+    setInVault(new Set())
   })
 
   it('keep columns level around a merged cell, its words in the first square', () => {

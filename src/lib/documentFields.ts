@@ -4,8 +4,9 @@ import { asShares } from '../share/crypto'
 import { asCategories, asFolder } from './folders'
 import { asGoal } from './documentGoal'
 import { asExpiry } from './expiry'
-import { asPosition } from './manuscript'
+import { asPosition, asStatus, asSummary } from './manuscript'
 import { asPlaced } from './placed'
+import { asPosted } from './posted'
 import { asReminder } from './reminders'
 import { isTime } from './time'
 import { asVault } from './vault'
@@ -57,10 +58,14 @@ const FIELDS: { [K in keyof Item]-?: Field<Item[K]> } = {
   deviceOnly: { ...BACKUP_ONLY, read: asReadOnly },
   goal: kept(asGoal),
   shares: kept(asShares),
+  posted: kept(asPosted),
   vault: kept(asVault),
   folder: kept(asFolder),
   categories: kept(asCategories),
   position: kept(asPosition),
+  summary: kept(asSummary),
+  status: kept(asStatus),
+  screenplay: kept(asReadOnly),
   stamps: kept(asPlaced),
   // Sent only once it is sealed, and then it's gone. A backup checks its own, whose text may hold pictures.
   unsealed: BACKUP_ONLY,
@@ -80,7 +85,18 @@ export function readFields(raw: object, by: 'sync' | 'backup'): Partial<Item> {
     const value = FIELDS[name][by] ? FIELDS[name].read?.((raw as Record<string, unknown>)[name]) : undefined
     if (value !== undefined) fields[name] = value
   }
+  unsaid(fields as Partial<Item>)
   return fields as Partial<Item>
+}
+
+/**
+ * A locked document has no summary: the vault seals only its text, and words
+ * about it left beside it would be read without the passcode. Locking takes
+ * it off (db/items `lock`); a Nib from before summaries locks without a word
+ * about it, so it's taken off here too, however the document arrives.
+ */
+function unsaid(item: Partial<Item>) {
+  if (item.vault && typeof item.summary === 'string') item.summary = null
 }
 
 /** Onto a document from another device: this device's own, of what it says nothing about. */
@@ -88,6 +104,7 @@ export function keepMissing(arrived: Item, local: Item | undefined) {
   for (const name of NAMES) {
     if (FIELDS[name].kept && arrived[name] === undefined && local?.[name] !== undefined) Object.assign(arrived, { [name]: local[name] })
   }
+  unsaid(arrived)
 }
 
 /** A document as sync sends it. */

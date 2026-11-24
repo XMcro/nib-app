@@ -40,6 +40,16 @@ describe('the app icon', () => {
     expect(window.setIcon).toHaveBeenLastCalledWith({ name: undefined })
   })
 
+  // Asked for 2026-11-20: one for each of the six newer themes, the Plus badge's, and Inkwell.
+  it('offers thirteen, the newer by their asset names', async () => {
+    show(true)
+    expect(icons().getAllByRole('radio').map((one) => one.getAttribute('aria-label'))).toEqual(['Ink', 'Paper', 'Blue', 'Green', 'Rose', 'Vellum', 'Sage', 'Lilac', 'Ember', 'Tide', 'Merlot', 'Nib Plus', 'Inkwell'])
+    await userEvent.click(icons().getByRole('radio', { name: 'Nib Plus' }))
+    expect(window.setIcon).toHaveBeenLastCalledWith({ name: 'AppIcon-NibPlus' })
+    await userEvent.click(icons().getByRole('radio', { name: 'Inkwell' }))
+    expect(window.setIcon).toHaveBeenLastCalledWith({ name: 'AppIcon-Inkwell' })
+  })
+
   it('leads to Billing without Plus, and changes nothing', async () => {
     const onOpenBilling = show(false)
     await userEvent.click(icons().getByRole('radio', { name: 'Rose' }))

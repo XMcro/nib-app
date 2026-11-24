@@ -1,6 +1,6 @@
 import { strFromU8, type Unzipped } from 'fflate'
 import type { JSONContent } from '@tiptap/react'
-import { DOC_BUDGET, allowedImageSrc, toDataUrl } from './image'
+import { DOC_BUDGET, allowedImageSrc, asSpan, toDataUrl } from './image'
 
 /**
  * A Word document (.docx) read into a Nib page. A .docx is a zip of XML: the
@@ -110,7 +110,7 @@ function readParts(files: Record<string, Uint8Array>): Parts & { document: Docum
     const target = rel.getAttribute('Target') ?? ''
     const type = rel.getAttribute('Type') ?? ''
     if (type.endsWith('/hyperlink')) links.set(id, target)
-    else if (type.endsWith('/image')) pictures.set(id, target.startsWith('/') ? target.slice(1) : `word/${target}`)
+    else if (type.endsWith('/image')) pictures.set(id, partPath(target))
   }
 
   const notes = (name: string, tag: string) => {
@@ -164,7 +164,7 @@ class Reader {
     const read: (Block | JSONContent)[] = []
     for (const el of container.children) {
       if (is(el, 'p')) read.push(this.paragraph(el))
-      else if (is(el, 'tbl')) read.push(this.table(el))
+      else if (is(el, 'tbl')) read.push(...this.table(el))
       else if (is(el, 'sdt')) read.push(...this.blocks(child(el, 'sdtContent') ?? el))
     }
     const out: JSONContent[] = []
@@ -379,7 +379,8 @@ class Reader {
     return { type: 'noteToSelf', attrs: { id, text: ids.map((one) => this.parts.comments.get(one)!.text).join('\n') } }
   }
 
-  private table(tbl: Element): JSONContent {
+  /** A table, or nothing for one with no cells: a table of no rows is none to the editor, and its page wouldn't export. */
+  private table(tbl: Element): JSONContent[] {
     const rows: JSONContent[] = []
     for (const tr of [...tbl.children].filter((el) => is(el, 'tr'))) {
       const header = on(child(tr, 'trPr'), 'tblHeader')
@@ -387,13 +388,24 @@ class Reader {
       rows.push({
         type: 'tableRow',
         content: cells.map((tc) => {
-          const span = Number(attr(child(child(tc, 'tcPr'), 'gridSpan'), 'val')) || 1
+          const span = asSpan(Number(attr(child(child(tc, 'tcPr'), 'gridSpan'), 'val')))
           return { type: header ? 'tableHeader' : 'tableCell', attrs: { colspan: span, rowspan: 1, colwidth: null }, content: this.blocks(tc, true) }
         }),
       })
     }
-    return { type: 'table', content: rows.filter((row) => row.content!.length) }
+    const filled = rows.filter((row) => row.content!.length)
+    return filled.length ? [{ type: 'table', content: filled }] : []
   }
+}
+
+/** Where a picture's relationship points, as its part is named in the file: from the top, or beside the document, any `./` and `../` followed. */
+function partPath(target: string): string {
+  const steps: string[] = []
+  for (const step of (target.startsWith('/') ? target.slice(1) : `word/${target}`).split('/')) {
+    if (step === '..') steps.pop()
+    else if (step && step !== '.') steps.push(step)
+  }
+  return steps.join('/')
 }
 
 /** What a newer Word wrote for readers that understand it (mc:Choice), over its fallback. */

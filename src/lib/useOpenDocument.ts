@@ -97,6 +97,9 @@ export function useOpenDocument({
   // saved into its document once that is locked elsewhere (keepLocked).
   const seededLocked = useRef(false)
   const kindRef = useRef<Kind>(kind)
+  // A draft begun as a screenplay (lib/fountain) is made one at its first save.
+  const screenplayDraft = useRef(false)
+  const [draftScreenplay, setDraftScreenplay] = useState(false)
   const pending = useRef<JSONContent | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const drafts = useRef(0)
@@ -104,6 +107,8 @@ export function useOpenDocument({
   // landed still holds a null id, and has to update it rather than create the
   // draft a second time.
   const createdDraft = useRef<{ draft: number; id: string } | null>(null)
+  // The versions this window's own saves have taken one document through, in a row: from `first` to `last`.
+  const ownSaves = useRef<{ id: string; first: number; last: number } | null>(null)
   // Keeps restores' keys apart: a restore is no new draft.
   const restores = useRef(0)
   // What was typed into locked documents after their passcode changed on
@@ -181,12 +186,13 @@ export function useOpenDocument({
     // different, newer draft" — resetToDraft restores that same null. The
     // generation counter is what distinguishes them.
     const draft = drafts.current
+    const screenplay = screenplayDraft.current
     return enqueue.current(async () => {
       // Not idRef inside the task: a select() since would hand this draft's
       // text to the document now on screen.
       const target = id ?? (createdDraft.current?.draft === draft ? createdDraft.current.id : null)
       if (target === null) {
-        const created = await items.create(writeKind, body, filingRef.current)
+        const created = await items.create(writeKind, body, { ...filingRef.current, screenplay })
         createdDraft.current = { draft, id: created }
         startedHere(created) // for the daily goal: all of its words are today's
         if (idRef.current === null && drafts.current === draft) {
@@ -194,10 +200,16 @@ export function useOpenDocument({
           versionRef.current = 1
         }
       } else {
+        // Queued while an earlier save of this document was still being written (a slow one, and a blur behind it):
+        // the version it was queued at is the one that save has since moved on, and no one else's edit. Taken for
+        // one, it was an "Also edited elsewhere" over the writer's own words, or a copy of a locked note made of them.
+        const own = ownSaves.current?.id === target ? ownSaves.current : null
+        const from = own && expected !== undefined && expected >= own.first && expected < own.last ? own.last : expected
         const next = await items
-          .update(target, body, { expectedVersion: expected, wasLocked })
+          .update(target, body, { expectedVersion: from, wasLocked })
           .catch((error: unknown) => keepLocked(error, target, writeKind, body))
         if (next === null) return
+        if (from !== undefined) ownSaves.current = { id: target, first: own && from === own.last ? own.first : from, last: next }
         // Guarded for the same reason: a write resolving after the user has
         // moved on must not stamp this document's version over the one now on
         // screen.
@@ -206,7 +218,7 @@ export function useOpenDocument({
         // so overshooting means a foreign writer landed between our seed and
         // our write. Their text is preserved as a revision; say so. A locked
         // note keeps no history, so there it became a locked copy instead.
-        if (expected !== undefined && next !== expected + 1) {
+        if (from !== undefined && next !== from + 1) {
           const saved = await items.get(target)
           if (!saved || !vault.isLocked(saved)) setConflict(target)
           else {
@@ -254,8 +266,10 @@ export function useOpenDocument({
   }
 
   // Every caller saves what is typed first, bar a backup being restored, which
-  // throws it away instead (dropPending).
-  function resetToDraft() {
+  // throws it away instead (dropPending). `screenplay`: a page's draft begun as a screenplay.
+  function resetToDraft(screenplay = false) {
+    screenplayDraft.current = screenplay
+    setDraftScreenplay(screenplay)
     onDraft()
     leave()
     setSealedOpen(null)
@@ -356,9 +370,9 @@ export function useOpenDocument({
 
   /**
    * A stored document on screen: `readable` its text, or null while the vault
-   * is shut to it. `keepSealed`, for sync alone, leaves `sealedOpen` as it is.
+   * is shut to it.
    */
-  function seat(item: Item, readable: Item | null, { keepSealed = false } = {}) {
+  function seat(item: Item, readable: Item | null) {
     versionRef.current = item.version
     seededLocked.current = Boolean(item.vault)
     if (!readable) {
@@ -366,7 +380,8 @@ export function useOpenDocument({
       showSealed(item.id)
       return
     }
-    if (!keepSealed) setSealedOpen(null)
+    // From sync as well: a note unlocked on another device kept its "locked in the vault" over the text.
+    setSealedOpen(null)
     // Keyed by version too, so re-opening the document on screen after
     // someone else changed it shows their text instead of writing over it.
     setDoc({ key: editorKey.at(item.id, item.version), body: readable.body })
@@ -405,6 +420,14 @@ export function useOpenDocument({
     pending.current = null
   }
 
+  /**
+   * And what's waiting for the vault's passcode to be saved into a note (`lockedElsewhere`), once a backup has
+   * replaced the database: that note is the backup's now, or gone, and the text was written into it all the same.
+   */
+  function dropKept() {
+    lockedElsewhere.current.clear()
+  }
+
   /** Lock this note or page, asking for the vault's passcode first if the vault is shut. */
   async function lockCurrent() {
     await whenSaved(async (id) => {
@@ -421,8 +444,11 @@ export function useOpenDocument({
         // Before the lock, not after: a save made while it finishes is of this
         // note as locked here, not an edit a lock from elsewhere beat
         // (keepLocked), nor another tab's write.
-        seededLocked.current = true
-        versionRef.current = item.version + 1
+        // Only if it's still the one on screen: another opened meanwhile has a version, and a lock or none, of its own.
+        if (idRef.current === id) {
+          seededLocked.current = true
+          versionRef.current = item.version + 1
+        }
         try {
           await items.lock(id, item.body, item.version)
         } catch (error) {
@@ -437,7 +463,8 @@ export function useOpenDocument({
         // A lock stops nothing already online: the link still serves the draft
         // as it was shared. Said, with the way to stop it, rather than done.
         if (liveShare(item)) setSharedLocked(id)
-        else setNotice('Locked. Only the vault’s passcode opens it now, and its past versions are gone.')
+        // Its summary went with the lock (db/items lock): said, as it would otherwise just be missing from its card.
+        else setNotice(`Locked. Only the vault’s passcode opens it now, and its past versions are gone${item.summary ? ', as is its summary on the corkboard' : ''}.`)
       }))
     }, () => setNotice('Write something first, then lock it.'))
   }
@@ -539,6 +566,10 @@ export function useOpenDocument({
     // writer's click. But a click, or typing, while this opens wins.
     const selection = selections.current
     const overtaken = () => selection !== selections.current || idRef.current !== id || pending.current !== null
+    // After any save of it still being written (a blur's, a moment ago): read before that landed, the other
+    // device's text went on screen with this one's stored under it, and the next keystroke saved over it unseen.
+    await enqueue.current(async () => {})
+    if (overtaken()) return
     const item = await items.get(id)
     if (overtaken()) return
     if (!item) {
@@ -547,7 +578,7 @@ export function useOpenDocument({
     }
     const readable = await items.opened(item)
     if (overtaken()) return
-    seat(item, readable, { keepSealed: true })
+    seat(item, readable)
   }
 
   function changeKind(next: Kind) {
@@ -560,13 +591,26 @@ export function useOpenDocument({
     // Snapshot what is on screen first, so restoring is itself undoable.
     // Both revisions are forced and the write is told not to record, or the
     // save would fold into the snapshot and overwrite the draft.
-    if (current) await revisionStore.record(id, current.body, { force: true })
+    // Locked on another device while History was open: its versions are from before, in the clear, and put back
+    // they'd be the locked note's text in its history again. The save itself refuses one locked in the moment since.
+    const lockedSince = () => setNotice('This note was locked on another device. Open it from the vault to change it.')
+    if (current && vault.isLocked(current)) return lockedSince()
+    // The two stamped a millisecond apart, after every version there is: written in the same one, they came back in
+    // either order, and the next save could fold into the text before, which was the restore undone for good.
+    const at = Math.max(Date.now(), ((await revisionStore.newest(id))?.createdAt ?? 0) + 1)
+    if (current) await revisionStore.record(id, current.body, { force: true, now: at })
     const next = filterBodyImages(body)
-    const version = await items.update(id, next, { record: false })
+    let version: number
+    try {
+      version = await items.update(id, next, { record: false, wasLocked: false })
+    } catch (error) {
+      if (error instanceof items.LockedElsewhere) return lockedSince()
+      throw error
+    }
     // Another document opened during these writes: this one is restored, and
     // what's on screen, with its version, stays that one's.
     if (idRef.current === id) versionRef.current = version
-    await revisionStore.record(id, next, { force: true })
+    await revisionStore.record(id, next, { force: true, now: at + 1 })
     if (idRef.current === id) showAnew(next)
   }
 
@@ -639,9 +683,12 @@ export function useOpenDocument({
     keptAs,
     /** The editor on screen brings the keyboard up at once. */
     startTyping: doc.key === typingKey,
+    /** The draft on screen was begun as a screenplay. */
+    draftScreenplay,
     typeInDraft,
     seatDraft,
     dropPending,
+    dropKept,
     flush,
     whenSaved,
     guarded,

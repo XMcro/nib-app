@@ -105,6 +105,21 @@ describe('verifyTransaction', () => {
     await expect(verify(await sign({ ...TRANSACTION, revocationDate: NOW }))).rejects.toThrow('refunded')
   })
 
+  // Each was answered, but by an error of the wrong kind, from reading what wasn't there.
+  it('says a receipt is malformed when its parts aren’t what they should be', async () => {
+    const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
+    const [header, payload, signature] = (await sign(TRANSACTION)).split('.')
+    for (const odd of [null, 7, [1]]) {
+      await expect(verify(`${part(odd)}.${payload}.${signature}`)).rejects.toThrow('malformed JWS')
+      await expect(verify(`${header}.${part(odd)}.${signature}`)).rejects.toThrow('malformed JWS')
+    }
+    const chained = (x5c: unknown[]) => verify(`${part({ alg: 'ES256', x5c })}.${payload}.${signature}`)
+    await expect(chained([chain.leaf, 7, chain.root])).rejects.toThrow('unexpected certificate chain')
+    await expect(chained(Array.from({ length: 1000 }, () => chain.leaf))).rejects.toThrow('unexpected certificate chain')
+    // A certificate that says its length takes four bytes, and ends before them.
+    await expect(chained([Buffer.from([0x30, 0x84, 0x01]).toString('base64'), chain.intermediate, chain.root])).rejects.toThrow('truncated certificate')
+  })
+
   it('refuses Xcode’s local test purchases unless told otherwise', async () => {
     const xcode = await sign({ ...TRANSACTION, environment: 'Xcode' }, { x5c: [chain.leaf] })
     await expect(verify(xcode)).rejects.toThrow('Xcode test transactions')

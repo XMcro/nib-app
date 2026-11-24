@@ -3,7 +3,7 @@ import { getSchema } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
 import type { JSONContent } from '@tiptap/react'
 import { nibExtensions } from '../editor/extensions'
-import { readAloud, sentencesIn, toRead, type Sentence } from './readAloud'
+import { piecesOf, readAloud, sentencesIn, toRead, type Sentence } from './readAloud'
 
 const schema = getSchema(nibExtensions(true))
 const run = (text: string): JSONContent => ({ type: 'text', text })
@@ -142,5 +142,35 @@ describe('readAloud', () => {
     expect(onEnd).not.toHaveBeenCalled()
     spoken[0].onerror!({ error: 'synthesis-failed' })
     expect(onEnd).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('what a recording says', () => {
+  const body = (...content: JSONContent[]): JSONContent => ({ type: 'doc', content })
+
+  it('says a document from its title, every sentence, folded ones too, but not its footnotes', () => {
+    const page = body(
+      { type: 'heading', attrs: { level: 1, folded: true }, content: [run('Salt and weed')] },
+      para(run('The tide came in. She would not go back.'), { type: 'footnote', attrs: { text: 'Her father’s rule.' } }),
+    )
+    expect(piecesOf([page])).toEqual([{ say: 'Salt and weed' }, { say: 'The tide came in.' }, { say: 'She would not go back.' }])
+  })
+
+  it('says a book in order, with a pause before each next one that has words, and none at the start or the end', () => {
+    const pieces = piecesOf([
+      body({ type: 'heading', attrs: { level: 1 }, content: [run('The Lighthouse')] }, para(run('by Mara Wells'))),
+      body(),
+      body({ type: 'heading', attrs: { level: 1 }, content: [run('One')] }, para(run('Steps.'))),
+      body({ type: 'heading', attrs: { level: 1 }, content: [run('Two')] }),
+    ])
+    expect(pieces).toEqual([
+      { say: 'The Lighthouse' },
+      { say: 'by Mara Wells' },
+      { pause: 1.5 },
+      { say: 'One' },
+      { say: 'Steps.' },
+      { pause: 1.5 },
+      { say: 'Two' },
+    ])
   })
 })

@@ -381,6 +381,30 @@ describe('a folder inside another', () => {
       expect(moved('Blog', 'Book', 'Novel')).toBe('Blog')
     })
 
+    it('takes the backup folder’s choice of folders with it, renamed or removed, so the backup still finds the book', async () => {
+      const { setWhichFolders, whichFolders } = await import('./backupChoice')
+      setWhichFolders(['Novel', 'Blog'])
+      await renameFolder('Novel', 'Book')
+      expect(whichFolders()).toEqual(['Book', 'Blog'])
+      await removeFolder('Blog')
+      expect(whichFolders()).toEqual(['Book'])
+      setWhichFolders(null)
+    })
+
+    it('takes its book’s submissions with it, which are of the book by the folder’s name', async () => {
+      const { addSubmission, readSubmissions, replaceSubmissions, submissionsOf } = await import('./submissions')
+      replaceSubmissions({})
+      addSubmission({ book: 'Novel' }, { where: 'An agent' })
+      addSubmission({ book: 'novel/Part 1' }, { where: 'A magazine' })
+      addSubmission({ book: 'Blog' }, { where: 'Elsewhere' })
+      await renameFolder('Novel', 'Book')
+      expect(submissionsOf(readSubmissions(), { book: 'Book' }).map((one) => one.where)).toEqual(['An agent'])
+      expect(submissionsOf(readSubmissions(), { book: 'Book/Part 1' }).map((one) => one.where)).toEqual(['A magazine'])
+      expect(submissionsOf(readSubmissions(), { book: 'Novel' })).toEqual([])
+      expect(submissionsOf(readSubmissions(), { book: 'Blog' })).toHaveLength(1)
+      replaceSubmissions({})
+    })
+
     it('moves up when its folder is removed, and leaves what’s in it in that folder when it is', async () => {
       await removeFolder('Novel/Part 1')
       expect(await folders()).toEqual({ own: 'Novel', one: 'Novel', two: 'novel/Part 2', out: 'Blog' })

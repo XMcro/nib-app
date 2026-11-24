@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
+import { useState } from 'react'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import './index.css'
 import { db } from './db/db'
@@ -12,6 +13,12 @@ vi.mock('./lib/platform', async (importOriginal) => {
   const real = await importOriginal<typeof import('./lib/platform')>()
   return { ...real, nativeApp: true, macApp: true, touchApp: false }
 })
+
+// Nib Plus, which this has needed since Phase 10 (without it, Commands offers Plus: App.test).
+vi.mock('./lib/plus', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/plus')>()),
+  usePlus: () => [...useState({ active: true }), true],
+}))
 
 const { App } = await import('./App')
 const wait = () => act(() => new Promise((resolve) => setTimeout(resolve, 100)))

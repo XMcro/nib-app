@@ -23,14 +23,15 @@ export const NIB: Answer[] = [
     topic: 'nib',
     q: 'How do I hide everything but my writing?',
     also: ['focus mode', 'distraction free', 'full screen writing', 'hide the library'],
-    a: 'Choose Focus mode in Commands, or press ⇧⌘F on a Mac. Everything but the text steps away, Inkwell too. Choose Leave focus mode, or press it again, to come back.',
+    a: 'Choose Focus mode in Commands, or press ⇧⌘F on a Mac. Everything but the text steps away, Inkwell too. Choose Leave focus mode, or press it again, to come back.\n\nWith Nib Plus, the speaker at the top right plays your focus sounds: rain, a café, a fire or typewriter keys.',
+    see: ['nib-focus-sounds'],
   },
   {
     id: 'nib-template',
     topic: 'nib',
     q: 'How do I make a template?',
     also: ['save as template', 'start from a template', 'reuse a note', 'new from template'],
-    a: 'Open the note or page you’d like to start from and choose Save as template in Commands. It keeps a copy in Templates, beside the Archive.\n\nTo use one, choose New from template… in Commands, or Use on its card in Templates. Three templates are free; as many as you like is part of Nib Plus.',
+    a: 'Open the note or page you’d like to start from and choose Save as template in Commands. It keeps a copy in Templates, beside the Archive.\n\nTo use one, choose New from template… in Commands, or Use on its card in Templates. One template is free; as many as you like is part of Nib Plus.',
     see: ['nib-folder-template'],
   },
   {
@@ -68,8 +69,8 @@ export const NIB: Answer[] = [
     topic: 'nib',
     q: 'How do I send my book to an agent in standard manuscript format?',
     also: ['manuscript format', 'submission format', 'shunn format', 'double spaced times new roman'],
-    a: 'Open the book’s folder, choose Manuscript, and give it its title and your name under Title page. Then choose Standard manuscript as Word or PDF.\n\nYou get Times New Roman at 12 points, double-spaced, with an inch all round; your name, the length and the title on the first page; and your surname, the title and the page number at the top of every page after it. It’s part of Nib Plus.',
-    see: ['nib-book-goal'],
+    a: 'Open the book’s folder, choose Manuscript, and give it its title and your name under Title page. Then choose Standard manuscript as Word or PDF.\n\nYou get Times New Roman at 12 points, double-spaced, with an inch all round; your name, the length and the title on the first page; and your surname, the title and the page number at the top of every page after it. It’s part of Nib Plus.\n\nOnce it’s sent, Submissions in the Manuscript keeps track of where it went.',
+    see: ['nib-book-goal', 'nib-submissions'],
   },
   {
     id: 'nib-book-goal',

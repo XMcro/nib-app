@@ -10,12 +10,15 @@ import { UpgradeDialog } from './components/UpgradeDialog'
 import { FilingDialog } from './components/FilingDialog'
 import { PlusWelcome } from './components/PlusWelcome'
 import { CountsAsk, FeedbackDialog, FeedbackOffer } from './components/TellUs'
+import { YearCardOffer } from './components/Goals'
 import { BuddyCorner, BuddyOffer, BuddyPanel } from './components/Buddy'
+import { InvitationsOffer } from './components/InvitationsOffer'
 import { setBuddy, useBuddy } from './lib/buddy'
 import { useCheers } from './lib/cheers'
 import { Banner } from './components/Banner'
 import { Gear, Library } from './components/Library'
 import { useDocumentExpiry } from './components/useDocumentExpiry'
+import { useFocusSounds } from './components/useFocusSounds'
 import { useDocumentReminder } from './components/useDocumentReminder'
 import { dueOn } from './lib/expiry'
 import { localDay } from './lib/time'
@@ -44,15 +47,18 @@ import { FORMAT_NAMES, RICH_FORMATS } from './lib/documentExport'
 import { setLinkable } from './lib/links'
 import { remindersAvailable, useKeptReminders } from './lib/reminders'
 import { useDailyGoal } from './lib/goal'
-import { SPRINT_LENGTHS, useSprint } from './lib/sprint'
+import { SPRINT_LENGTHS, SPRINTS_PLUS, useSprint } from './lib/sprint'
 import { useFirsts } from './lib/firsts'
 import { useStamps } from './lib/useStamps'
 import { useEndOpening } from './lib/opening'
 import * as vault from './lib/vault'
 import { store, useEntitled, usePlus, type Entitlement } from './lib/plus'
 import { aboutToType, cardCame, quiet, sheetUp } from './lib/quiet'
-import { keptHere, watchUpsell } from './lib/upsell'
+import { DAYS_ENDED, keptHere, watchUpsell } from './lib/upsell'
 import { useLaunchServices } from './lib/useLaunchServices'
+import { plusEnds, useWidgets } from './lib/widgets'
+import { tellInvitations } from './lib/invitations'
+import { isScreenplay, nameOf, SCREENPLAY_PLUS } from './lib/fountain'
 import { useLibraryView } from './lib/useLibraryView'
 import { keepOriginals } from './lib/originals'
 import { isDefaultStart, useStart } from './lib/startAt'
@@ -72,10 +78,18 @@ import { CANT_SAVE, COPY_KEPT, NOTE_DELETED, NOTE_IN_TRASH, useNotice } from './
 import { count, setCountsAnswer, useCounted } from './lib/counts'
 import { NEW_NOTE_SHORTCUT, LIBRARY_SHORTCUT, macApp, nativeApp, shortcut, touchApp } from './lib/platform'
 import { countWords } from './lib/stats'
-import { plainText, titleOf } from './lib/text'
+import { plainText } from './lib/text'
+import { BLOG_PLUS } from './lib/blog'
+import { AUDIO_PLUS } from './lib/readAloud'
+import { readSubmissions, submissionsOf, SUBMISSIONS_PLUS } from './lib/submissions'
+import { backUpIfDue } from './lib/backupFolder'
 
 /** Why the Plus sheet opened, when a table's CSV was asked for without it. */
 const CSV_PLUS = 'Bringing a CSV into a table, and taking a table out to one, are part of Nib Plus.'
+// Moved to Plus 2026-11-20, for everyone (Docs/nib-roadmap-plan.md, Phase 10).
+const READ_ALOUD_PLUS = 'Hearing your writing read aloud is part of Nib Plus.'
+const NOTES_LIST_PLUS = 'The list of every note to self and TK in a document is part of Nib Plus. Adding them is free.'
+const PICTURE_LINK_PLUS = 'Adding a picture from a link is part of Nib Plus.'
 
 /** One empty list while the database answers, so effects keyed on the lists don't run every render. */
 const NONE: Item[] = []
@@ -130,6 +144,18 @@ export function App() {
   const templates = lists?.templates ?? NONE
   // The archive and the templates (lib/templates): apart from the lists, but documents to open, keep in tabs and find all the same.
   const setAside = useMemo(() => [...archived, ...templates], [archived, templates])
+
+  // Backup to a folder (lib/backupFolder): with Plus, in the app, once a day, the first time Nib is open with the library read.
+  const libraryRead = listed !== undefined
+  useEffect(() => {
+    if (!nativeApp || !entitled.features || !libraryRead) return
+    const due = () => {
+      if (document.visibilityState === 'visible') void backUpIfDue()
+    }
+    due()
+    document.addEventListener('visibilitychange', due)
+    return () => document.removeEventListener('visibilitychange', due)
+  }, [entitled.features, libraryRead])
   // The daily goal and its streak are free, in the app. The calendar is counted for everyone and shown with Plus.
   const [dailyGoal, goalTarget, setGoalTarget, writtenToday] = useDailyGoal(notes, [...pages, ...archived], nativeApp)
   // A new writer's first steps (lib/firsts), each ticked as the app sees it done.
@@ -137,7 +163,7 @@ export function App() {
   const sprints = useSprint([...notes, ...pages], flush)
   // Requests from elsewhere for the settings panel (a "Plus" label leads to
   // Billing) and for the status line's forms (from the palette).
-  const [settingsTo, setSettingsTo] = useState<{ view: 'main' | 'billing' | 'sync'; at: number; changeCode?: boolean } | null>(null)
+  const [settingsTo, setSettingsTo] = useState<{ view: 'main' | 'billing' | 'sync' | 'blog'; at: number; changeCode?: boolean } | null>(null)
   const [statusRequest, setStatusRequest] = useState<GoalControls['request']>(null)
   useStyleSettings()
   const [importReport, setImportReport] = useState<{ imported: Kind[]; skipped: string[] } | null>(null)
@@ -182,9 +208,10 @@ export function App() {
         }
       : null
   const beside = useSideBySide({ session, everything, activeItem, features: entitled.features, focusMode })
-  const reminder = useDocumentReminder(activeItem, focusMode)
+  const reminder = useDocumentReminder(activeItem, focusMode, { features: entitled.features, askPlus })
   useKeptReminders(everything, archived, listed !== undefined)
   const expiry = useDocumentExpiry(activeItem, focusMode, entitled.features)
+  const sounds = useFocusSounds({ features: entitled.features, focusMode })
   // The buddy cheering you on (lib/cheers): the piece open, counted unless it's locked, and the title last written in, for a welcome back.
   const openBody = activeItem && !vault.isLocked(activeItem) ? activeItem.body : null
   const openWords = useMemo(() => (openBody ? countWords(plainText(openBody)) : 0), [openBody])
@@ -194,7 +221,7 @@ export function App() {
     ready: listed !== undefined,
     last: () => {
       const latest = [...notes, ...pages].filter((item) => !vault.isLocked(item)).sort((a, b) => b.updatedAt - a.updatedAt)[0]
-      const title = latest && titleOf(latest.body)
+      const title = latest && nameOf(latest)
       return title && title !== 'Untitled' ? title : undefined
     },
     goal: dailyGoal,
@@ -248,10 +275,13 @@ export function App() {
    * a folder shown that has a template of this kind, a new document from it,
    * open to write in (lib/templates).
    */
-  function startNew(next?: Kind) {
+  /** A new note or page, or with `screenplay` a page written as one (lib/fountain, Nib Plus). */
+  function startNew(next?: Kind, { screenplay = false } = {}) {
+    if (screenplay && !entitled.features) return askPlus(SCREENPLAY_PLUS)
     if (place && 'templates' in place && !canSaveTemplate(templates.length, unlimited)) return askPlus(TEMPLATES_PLUS)
-    const own = folderTemplate()
-    if (own && own.kind === (next ?? currentKind())) {
+    const own = screenplay ? null : folderTemplate()
+    // A folder's template that's a screenplay starts one only with Plus, as New screenplay does: without, the page is a plain one.
+    if (own && own.kind === (next ?? currentKind()) && (entitled.features || !isScreenplay(own))) {
       aboutToType()
       return void writeFromTemplate(own.id)
     }
@@ -261,7 +291,7 @@ export function App() {
     count(currentKind() === 'page' ? 'page_new' : 'note_new')
     flush()
     setViewingTrash(false)
-    resetToDraft()
+    resetToDraft(screenplay)
   }
 
   // The library covers the text, so opening a document from it has to put it
@@ -299,7 +329,11 @@ export function App() {
     if (!editor || currentId() !== id) return false
     return editor.commands.insertContentAt(editor.state.doc.content.size, content, { updateSelection: false })
   }
-  useLaunchServices({ session, libraryRead: listed !== undefined, documents: everything, addToOpen, plus: entitled.features, plusKnown: entitled.known, changeKind, hideListOverText, open: openFromLibrary, setNotice })
+  // What the widgets show (lib/widgets): with Plus, on iPhone and iPad.
+  useWidgets({ documents: everything, words: writtenToday, goal: goalTarget, plus: entitled.features, plusKnown: entitled.known, ready: listed !== undefined, until: plusEnds(subscription, entitled.pointsUntil) })
+  // What the week's invitations are worked out from (lib/invitations): the day's first words take today's off.
+  useEffect(() => tellInvitations({ documents: everything, plus: entitled.features, inkwell: buddy, wrote: writtenToday > 0, synced: sync.code !== null }), [everything, entitled.features, buddy, writtenToday, sync.code])
+  useLaunchServices({ session, libraryRead: listed !== undefined, documents: everything, addToOpen, plus: entitled.features, plusKnown: entitled.known, changeKind, hideListOverText, open: openFromLibrary, openBook: (folder) => showInLibrary(() => { changeKind('page'); setPlace({ folder }) }), askPlus, sprint: { running: sprints.sprint !== null, start: sprints.start }, setNotice })
 
   /** Sync kept edits a lock beat as copies (sync/engine): say so, and seal them now if the vault is open. */
   function keptCopies() {
@@ -351,7 +385,8 @@ export function App() {
       // trash copy rather than vanishing with the remount. Dropping `pending`
       // was inherited from when × permanently destroyed the record.
       await flush()
-      resetToDraft()
+      // If it still is: another opened while that was saved stays where it is.
+      if (ids.includes(currentId() ?? '')) resetToDraft()
     }
     // A note in the trash has nothing to remind you of: this device stops waiting to ring as the library changes (lib/reminders).
     await guarded(() => items.remove(which))
@@ -369,7 +404,7 @@ export function App() {
   // Held till Plus is known when Nib is to open somewhere of the writer's choosing, so it isn't seen opening on Notes first.
   useEndOpening(listed && (isDefaultStart(start) || entitled.known) ? listed : undefined)
 
-  const { exportAll, exportCurrent, exportTableCsv, insertTableCsv, compileManuscript, exportCurrentAs, exportMany, importFiles, backupAll, restoreFromFile } = fileActions({
+  const { exportAll, exportCurrent, exportScript, exportTableCsv, insertTableCsv, compileManuscript, exportCurrentAs, sendToBlog, saveAsAudio, listenToManuscript, exportMany, importFiles, backupAll, restoreFromFile } = fileActions({
     session,
     setNotice,
     features: entitled.features,
@@ -379,6 +414,7 @@ export function App() {
     sort,
     setImportReport,
     askPassword: (about) => new Promise((answer) => setPasswordAsked({ ...about, answer })),
+    openBlog: () => showInLibrary(() => setSettingsTo({ view: 'blog', at: Date.now() })),
     onRestored: () => {
       rereadTheme()
       rereadSort()
@@ -426,7 +462,8 @@ export function App() {
   // Nib opened itself shouldn't only say it can't be had.
   // With enough written, it says how much is here and on nothing else
   // (lib/upsell keptHere). A locked document's words are sealed, so not counted.
-  const offerPlus = useEffectEvent(async (shown: () => void) => {
+  // Once free days of Plus have ended, it says so instead (lib/upsell DAYS_ENDED).
+  const offerPlus = useEffectEvent(async (shown: () => void, ended: boolean) => {
     const device = await lock.status().then(
       (status) => status.device,
       () => null,
@@ -437,19 +474,24 @@ export function App() {
     shown()
     cardCame()
     // Not to a library that syncs already: it isn't all here, whoever pays for it.
-    setUpselling({ reason: device && !sync.code ? keptHere(words, device) : undefined })
+    setUpselling({ reason: ended ? DAYS_ENDED : device && !sync.code ? keptHere(words, device) : undefined })
   })
+  // The end of the latest free days of Plus, read at each look.
+  const freeDaysUntil = useEffectEvent(() => rewards.market.plusUntil)
 
   useEffect(() => {
     if (!nativeApp || !entitled.known || entitled.features) return
-    return watchUpsell((shown) => {
-      store
-        .products()
-        .then(({ products }) => {
-          if (products.length > 0) return offerPlus(shown)
-        })
-        .catch(() => {})
-    })
+    return watchUpsell(
+      (shown, ended) => {
+        store
+          .products()
+          .then(({ products }) => {
+            if (products.length > 0) return offerPlus(shown, ended)
+          })
+          .catch(() => {})
+      },
+      () => freeDaysUntil(),
+    )
   }, [entitled.known, entitled.features])
 
   // Plus turned on here, by a purchase or a restore, from the popup or
@@ -499,6 +541,7 @@ export function App() {
     open: openFromLibrary,
     openAt: openAtMatch,
     compile: compileManuscript,
+    listen: listenToManuscript,
     askPlus,
     onLimit: atLimit,
     unlimited,
@@ -570,6 +613,9 @@ export function App() {
    * where one written with nothing shown would go.
    */
   async function writeFromTemplate(id: string) {
+    // A new screenplay is Nib Plus however it's begun. A copy of one already written isn't new (`duplicateCurrent`).
+    const from = templates.find((item) => item.id === id)
+    if (from && isScreenplay(from) && !entitled.features) return askPlus(SCREENPLAY_PLUS)
     const filed = place && 'templates' in place ? filing(null, library, entitled.features ? start.newIn : null) : filingRef.current
     await guarded(async () => {
       const made = await items.fromTemplate(id, filed)
@@ -594,6 +640,8 @@ export function App() {
     // The row itself with Plus. Without, the row again, marked and asking for Plus, in the app, where it's sold, or `everywhere` (a browser's Billing says where).
     const plusRow = (row: Command, reason: string, { everywhere = false } = {}): Command[] =>
       entitled.features ? [row] : nativeApp || everywhere ? [{ ...row, badge: 'Plus', run: () => askPlus(reason) }] : []
+    // A Plus row whose feature the writer has already made something with (`has`): what was made stays to open without Plus.
+    const kept = (has: boolean, row: Command, reason: string) => (has ? [row] : plusRow(row, reason))
     const list: Command[] = [
       { id: 'new-note', label: 'New note', hint: NEW_NOTE_SHORTCUT, run: () => startNew('note') },
       { id: 'new-page', label: 'New page', run: () => startNew('page') },
@@ -620,8 +668,8 @@ export function App() {
         ...expiry.commands(plusRow),
         // After Remind me, which a phone has to show. On a phone this row is the only way to it.
         ...(editorRef.current && !showLibrary ? [{ id: 'find', label: `Find in this ${kind === 'page' ? 'page' : 'note'}`, hint: shortcut('F'), run: find }] : []),
-        // Near the top too, after Remind me, which a phone has to show.
-        ...aloud.commands,
+        // Near the top too, after Remind me, which a phone has to show. Stopping is free: Plus may end mid-sentence.
+        ...aloud.commands.flatMap((row) => (row.id === 'read-aloud' ? plusRow(row, READ_ALOUD_PLUS) : [row])),
         // A template is apart already, in Templates (lib/templates).
         ...(activeItem.template === true ? [] : [{ id: 'archive', label: typeof activeItem.archivedAt === 'number' ? 'Take out of the archive' : 'Move to the archive', run: () => toggleArchived(activeItem) }]),
         { id: 'read-only', label: activeItem.readOnly ? 'Allow editing' : 'Make read-only', run: () => void guarded(() => items.setReadOnly(activeItem.id, !activeItem.readOnly)) },
@@ -646,17 +694,31 @@ export function App() {
               ...(activeItem.template === true ? [] : [{ id: 'save-template', label: 'Save as template', run: () => void saveAsTemplate() }]),
               { id: 'history', label: 'Version history', run: panels.openHistory },
             ]),
-        { id: 'notes-to-self', label: 'Notes to self and TKs', run: panels.openNotesToSelf },
+        ...plusRow({ id: 'notes-to-self', label: 'Notes to self and TKs', run: panels.openNotesToSelf }, NOTES_LIST_PLUS),
+        // Those it already has stay to open without Plus (adding one asks for it, in the panel).
+        ...kept(submissionsOf(readSubmissions(), { document: activeItem.id }).length > 0, { id: 'submissions-here', label: 'Submissions of this one…', run: () => panels.openSubmissions({ document: activeItem.id }) }, SUBMISSIONS_PLUS),
         ...beside.commands(plusRow, palette),
         { id: 'export-one', label: 'Export this one as Markdown', run: () => void exportCurrent() },
+        // A screenplay as Fountain, free always, and as Final Draft with Plus (lib/fdx).
+        ...(isScreenplay(activeItem)
+          ? [
+              { id: 'export-fountain', label: 'Export this one as Fountain', run: () => void exportScript('fountain') },
+              ...plusRow({ id: 'export-fdx', label: 'Export this one as Final Draft', run: () => void exportScript('fdx') }, SCREENPLAY_PLUS),
+            ]
+          : []),
         ...RICH_FORMATS.flatMap((format) => plusRow({ id: `export-${format}`, label: `Export this one as ${FORMAT_NAMES[format]}`, run: () => void exportCurrentAs(format) }, RICH_EXPORT_PLUS)),
+        // In the app alone, which sends it (lib/blog).
+        ...(nativeApp ? plusRow({ id: 'send-to-blog', label: 'Send to your blog', run: () => void sendToBlog() }, BLOG_PLUS) : []),
+        ...(nativeApp ? plusRow({ id: 'save-as-audio', label: 'Save as audio', run: () => void saveAsAudio() }, AUDIO_PLUS) : []),
         { id: 'trash-this', label: 'Move this to trash', run: () => void destroy(activeItem.id) },
       )
     }
+    // Below the open document's rows: a phone shows only the first few, and Remind me has to be among them.
+    list.push(...plusRow({ id: 'new-screenplay', label: 'New screenplay', run: () => startNew('page', { screenplay: true }) }, SCREENPLAY_PLUS), ...sounds.commands(plusRow))
     // With or without a saved document: a draft has a tab too.
     list.push(...tabs.commands(plusRow, palette))
     // In the app alone, which is what can fetch it (lib/pictureLink), and into something that can be written in.
-    if (nativeApp && !showLibrary && editorRef.current?.isEditable) list.push({ id: 'picture-link', label: 'Add a picture from a link…', run: () => setPictureLink(true) })
+    if (nativeApp && !showLibrary && editorRef.current?.isEditable) list.push(...plusRow({ id: 'picture-link', label: 'Add a picture from a link…', run: () => setPictureLink(true) }, PICTURE_LINK_PLUS))
     // Any file, kept beside the library and named in the document where the cursor is (editor/attach).
     if (!showLibrary && editorRef.current?.isEditable) list.push(...plusRow({ id: 'attach', label: 'Attach a file…', run: () => attachInput.current?.click() }, 'Attaching files to a note or a page is part of Nib Plus.'))
     // With or without a saved document: a new page can start from a spreadsheet.
@@ -677,7 +739,7 @@ export function App() {
     } else if (nativeApp) {
       list.push(
         ...plusRow(goalRow, 'A goal for each note and page, with a deadline, is part of Nib Plus.'),
-        ...plusRow(sprintRow, 'Sprints are part of Nib Plus, with a calendar of your writing days.'),
+        ...plusRow(sprintRow, SPRINTS_PLUS),
       )
     }
     list.push(...keepsakes.commands())
@@ -705,6 +767,7 @@ export function App() {
     }
     list.push(
       { id: 'export-all', label: 'Export everything as Markdown', run: () => void exportAll() },
+      ...kept(submissionsOf(readSubmissions()).length > 0, { id: 'submissions', label: 'All submissions…', run: () => panels.openSubmissions() }, SUBMISSIONS_PLUS),
       // Attaching is Plus's; without it the list is still reached from Settings, for what was attached before.
       ...(entitled.features ? [{ id: 'attachments', label: 'Attachments…', run: panels.openAttachments }] : []),
       { id: 'trash', label: `Open trash${trash.length ? ` (${trash.length})` : ''}`, run: panels.openTrash },
@@ -819,6 +882,7 @@ export function App() {
           }}
         />
       )}
+      {asking === 'card' && <YearCardOffer onDone={endAsking} />}
       {asking === 'feedback' && (
         <FeedbackOffer
           gift={!entitled.subscribed}
@@ -826,6 +890,18 @@ export function App() {
           onSend={() => {
             endAsking()
             setFeedbackOpen(true)
+          }}
+        />
+      )}
+      {asking === 'invitations' && (
+        <InvitationsOffer
+          onYes={async () => {
+            await keepsakes.daily.changeInvitations(true)
+            endAsking()
+          }}
+          onNo={() => {
+            keepsakes.daily.declineInvitations()
+            endAsking()
           }}
         />
       )}
@@ -871,6 +947,7 @@ export function App() {
       {vaultAsk && <VaultDialog mode={vaultAsk.mode} onSubmit={answerVault} onClose={() => setVaultAsk(null)} />}
       {reminder.dialog}
       {expiry.dialog}
+      {sounds.dialog}
       {sharing.dialog}
       {/* A screen of its own, opened by a gear. */}
       <Settings
@@ -916,6 +993,8 @@ export function App() {
         onDelete={destroy}
         onTogglePin={togglePin}
         onNew={startNew}
+        onNewScreenplay={entitled.features || nativeApp ? () => startNew('page', { screenplay: true }) : undefined}
+        screenplayPlus={!entitled.features}
         onUseTemplate={(id) => void writeFromTemplate(id)}
         sort={shownSort}
         onSortChange={changeSort}
@@ -962,6 +1041,7 @@ export function App() {
               live only in the palette. Kept through focus mode, which has no
               other way out without a keyboard. */}
           <div className="flex items-center gap-1">
+            {sounds.button}
             <button
               onClick={() => setPalette('touch')}
               className="nib-tap pointer-events-auto hidden cursor-pointer rounded-md px-2 py-1 text-[11px] text-faint hover:text-muted pointer-coarse:block"
@@ -1074,6 +1154,7 @@ export function App() {
                 docKey={doc.key}
                 keptAs={session.keptAs}
                 kind={kind}
+                screenplay={activeItem ? isScreenplay(activeItem) : session.draftScreenplay}
                 initialBody={doc.body}
                 item={activeItem}
                 readOnly={activeItem?.readOnly === true}

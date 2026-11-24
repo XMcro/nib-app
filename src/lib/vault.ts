@@ -6,6 +6,7 @@ import type { Item, Vault } from '../db/db'
 import { base64url, fromBase64url } from '../../worker/base64'
 import { withoutOriginals } from './image'
 import { titleOf } from './text'
+import { nameOf } from './fountain'
 
 /**
  * The vault (Nib Plus): chosen notes and pages, encrypted with a passcode of
@@ -84,11 +85,13 @@ const keys = new Map<string, CryptoKey>()
 const titles = new Map<string, string>()
 const listeners = new Set<() => void>()
 const changed = () => listeners.forEach((listener) => listener())
+// Counted at each shutting, so a key that was still being made through one isn't taken up after it.
+let shuttings = 0
 
 export const vaultOpen = () => keys.size > 0
 export const lockedTitle = (id: string) => titles.get(id)
 /** What a list calls a document: a locked note's title is known only while the vault is open. */
-export const shownTitle = (item: Item) => (isLocked(item) ? (lockedTitle(item.id) ?? 'Locked') : titleOf(item.body))
+export const shownTitle = (item: Item) => (isLocked(item) ? (lockedTitle(item.id) ?? 'Locked') : nameOf(item))
 
 export function onVaultChange(listener: () => void): () => void {
   listeners.add(listener)
@@ -204,31 +207,39 @@ export async function openVault(passcode: string, locked: Locked[]): Promise<voi
   const problem = checkPasscode(passcode)
   if (problem && !locked.length) throw new VaultError(problem)
   const salts = [...new Set(locked.map((item) => item.vault.salt))]
+  // A key takes half a second to make. Shut in that time, as Nib left the screen or Lock Nib covered it, the
+  // vault was opened all the same once the key was made, and stayed open: so the keys are taken up only if not.
+  const began = shuttings
+  const made = new Map<string, CryptoKey>()
   if (!salts.length) {
     const salt = newSalt()
-    keys.set(salt, await makeKey(passcode, salt))
-    changed()
-    return
+    made.set(salt, await makeKey(passcode, salt))
   }
-  let opened = false
   for (const salt of salts) {
-    const sample = locked.find((item) => item.vault.salt === salt)!
+    const sealed = locked.filter((item) => item.vault.salt === salt)
     // A marked salt is Argon2id's, or 1 time in 256 one from before that's PBKDF2's.
     for (const pbkdf2 of marked(salt) ? [false, true] : [true]) {
       const key = await makeKey(passcode, salt, pbkdf2)
-      try {
-        await decrypt(key, sample.id, sample.vault.sealed)
-        keys.set(salt, key)
-        opened = true
+      // Opening none of them, it's another passcode's, from before a change on a device not yet synced.
+      if (await opensAny(key, sealed)) {
+        made.set(salt, key)
         break
-      } catch {
-        // Another passcode, from before a change on a device not yet synced.
       }
     }
   }
-  if (!opened) throw new VaultError('That passcode doesn’t open the vault.')
+  if (!made.size) throw new VaultError('That passcode doesn’t open the vault.')
+  if (began !== shuttings) throw new Error('Nib: the vault was shut while it was being opened')
+  for (const [salt, key] of made) keys.set(salt, key)
   await learnTitles(locked)
   changed()
+}
+
+/** Whether `key` opens any of them. Any, as one damaged record tried alone kept the right passcode from opening the rest. */
+async function opensAny(key: CryptoKey, sealed: Locked[]): Promise<boolean> {
+  for (const item of sealed) {
+    if (await decrypt(key, item.id, item.vault.sealed).then(() => true, () => false)) return true
+  }
+  return false
 }
 
 async function learnTitles(locked: Locked[]) {
@@ -236,7 +247,9 @@ async function learnTitles(locked: Locked[]) {
     const key = keys.get(item.vault.salt)
     if (!key) continue
     try {
-      titles.set(item.id, titleOf(await decrypt(key, item.id, item.vault.sealed)))
+      const title = titleOf(await decrypt(key, item.id, item.vault.sealed))
+      // Not if the vault shut while it was read.
+      if (keys.get(item.vault.salt) === key) titles.set(item.id, title)
     } catch {
       // Damaged or tampered with: it stays "Locked".
     }
@@ -245,6 +258,7 @@ async function learnTitles(locked: Locked[]) {
 
 /** Forgets the key and every title: the vault is shut until the passcode is given again. */
 export function closeVault() {
+  shuttings += 1
   if (!keys.size && !titles.size) return
   keys.clear()
   titles.clear()
@@ -264,8 +278,11 @@ export async function seal(id: string, body: JSONContent, salt = currentSalt()):
   if (!key) throw new VaultError('The vault is locked.')
   // Without its pictures' originals: they are files kept in the clear, beside the library, which a lock would not cover.
   const vault = { salt, sealed: await encrypt(key, id, withoutOriginals(body)) }
-  titles.set(id, titleOf(body))
-  changed()
+  // Not if the vault shut while it was sealed: its title would be the one still known.
+  if (keys.get(salt) === key) {
+    titles.set(id, titleOf(body))
+    changed()
+  }
   return vault
 }
 

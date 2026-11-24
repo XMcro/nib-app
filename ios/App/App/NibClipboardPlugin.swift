@@ -62,7 +62,8 @@ public class NibClipboardPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func expire(_ count: Int, at: Date) {
         UserDefaults.standard.set(["count": count, "at": at.timeIntervalSince1970], forKey: Self.expiring)
-        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, at.timeIntervalSinceNow)) {
+        // By the clock on the wall: the other kind stops while the Mac sleeps, and the copy outlived its time by as long as that was.
+        DispatchQueue.main.asyncAfter(wallDeadline: .now() + max(0, at.timeIntervalSinceNow)) {
             // A later private copy has its own turn.
             guard (UserDefaults.standard.dictionary(forKey: Self.expiring)?["count"] as? Int) == count else { return }
             UserDefaults.standard.removeObject(forKey: Self.expiring)

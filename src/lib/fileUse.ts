@@ -2,7 +2,7 @@ import type { JSONContent } from '@tiptap/core'
 import { db } from '../db/db'
 import { read, removeFiles } from './fileQueue'
 import { forgetFile, listFiles } from './files'
-import { filesIn } from './image'
+import { filesIn, type Full } from './image'
 import { readJson, writeJson } from './jsonStorage'
 
 /** How many documents, or past versions, are read at a time (`unnamed`). */
@@ -36,6 +36,48 @@ async function unnamed(ids: string[], synced: boolean): Promise<string[]> {
     )
   }
   return [...left]
+}
+
+/**
+ * Every file the documents that sync name, in what they hold or in their history, once each: what this device
+ * tells the server it uses (sync/files `nameFiles`). Not those of a document kept on this device only, whose files
+ * are taken off the server (`letGo`), nor its history's. `sent`: those a document itself names, or a version made
+ * since `sentFrom`, which are the ones the server is ever sent (sync/engine `outgoing` sends no older version).
+ * Read a few at a time, as `unnamed` reads.
+ */
+export async function filesUsed(sentFrom: number): Promise<{ used: Full[]; sent: Set<string> }> {
+  const used = new Map<string, Full>()
+  const sent = new Set<string>()
+  const local = new Set<string>()
+  const pages = async <T extends { id: string }>(next: (after: string) => Promise<T[]>, each: (row: T) => void) => {
+    for (let after = ''; ; ) {
+      const rows = await next(after)
+      rows.forEach(each)
+      if (rows.length < AT_A_TIME) return
+      after = rows[rows.length - 1].id
+      await new Promise((turn) => setTimeout(turn))
+    }
+  }
+  const names = (body: JSONContent, goes: boolean) => {
+    for (const file of filesIn(body)) {
+      used.set(file.id, file)
+      if (goes) sent.add(file.id)
+    }
+  }
+  await pages(
+    (after) => db.items.where(':id').above(after).limit(AT_A_TIME).toArray(),
+    (item) => {
+      if (item.deviceOnly) local.add(item.id)
+      else names(item.body, true)
+    },
+  )
+  await pages(
+    (after) => db.revisions.where(':id').above(after).limit(AT_A_TIME).toArray(),
+    (revision) => {
+      if (!local.has(revision.itemId)) names(revision.body, revision.createdAt >= sentFrom)
+    },
+  )
+  return { used: [...used.values()], sent }
 }
 
 /**

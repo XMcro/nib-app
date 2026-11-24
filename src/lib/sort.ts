@@ -1,5 +1,5 @@
 import type { Item } from '../db/db'
-import { titleOf } from './text'
+import { nameOf } from './fountain'
 
 export type Sort = 'updated' | 'created' | 'title'
 
@@ -42,7 +42,7 @@ function within(sort: Sort) {
       case 'created':
         return b.createdAt - a.createdAt
       case 'title':
-        return byTitle.compare(titleOf(a.body), titleOf(b.body))
+        return byTitle.compare(nameOf(a), nameOf(b))
       default:
         return b.updatedAt - a.updatedAt
     }

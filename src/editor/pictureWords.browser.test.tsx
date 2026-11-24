@@ -116,3 +116,34 @@ describe('pasting a picture with no words in it', () => {
     expect(notices).toHaveLength(0)
   })
 })
+
+/** A read that takes `ms`, as Vision's first one in an app did (24 s on a Mac) before it was readied after launch. */
+const slowly = (words: string[] | null, ms: number) => vi.mocked(wordsIn).mockImplementation(() => new Promise((done) => setTimeout(() => done(words), ms)))
+
+describe('a picture whose words take a while to read', () => {
+  it('says it is reading them, then what it typed out', async () => {
+    slowly(['The boats came in late.'], 900)
+    const { notices, dom } = mount()
+    paste(dom, [picture()])
+    await waitFor(() => expect(notices).toHaveLength(2), { timeout: 3000 })
+    expect(notices.map((one) => one.message)).toEqual(['Reading the words in the picture…', 'Typed out 5 words from the picture.'])
+  })
+
+  it('says so when it found none, and the picture went in', async () => {
+    slowly(null, 900)
+    const { bodies, notices, dom } = mount()
+    paste(dom, [picture()])
+    await waitFor(() => expect(notices).toHaveLength(2), { timeout: 3000 })
+    expect(notices.map((one) => one.message)).toEqual(['Reading the words in the picture…', 'Found no words in the picture, so it went in as a picture.'])
+    await waitFor(() => expect(imagesIn(bodies.at(-1)!)).toHaveLength(1))
+  })
+
+  it('says nothing more when they’re read at once', async () => {
+    slowly(['The boats came in late.'], 50)
+    const { notices, dom } = mount()
+    paste(dom, [picture()])
+    await waitFor(() => expect(notices).toHaveLength(1))
+    await new Promise((done) => setTimeout(done, 700))
+    expect(notices.map((one) => one.message)).toEqual(['Typed out 5 words from the picture.'])
+  })
+})

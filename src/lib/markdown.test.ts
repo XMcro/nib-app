@@ -97,6 +97,12 @@ describe('toMarkdown', () => {
     expect(toMarkdown(tasks)).toBe('- [x] done\n- [ ] todo')
   })
 
+  // Counted by spreading them into one call, some 130,000 were more than a call takes: the export failed.
+  it('fences code with more runs of backticks in it than a call takes arguments', () => {
+    const source = '` '.repeat(200_000) + '````'
+    expect(toMarkdown(doc({ type: 'codeBlock', content: [text(source)] }))).toBe(`\`\`\`\`\`\n${source}\n\`\`\`\`\``)
+  })
+
   it('fences code blocks, carrying the language when set', () => {
     const block = (language?: string) => ({
       type: 'codeBlock',

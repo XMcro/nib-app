@@ -23,6 +23,8 @@
 		A1B2C3D4E5F60718293A4B06 /* NibKeychainPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B05 /* NibKeychainPlugin.swift */; };
 		A1B2C3D4E5F60718293A4B08 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B07 /* PrivacyInfo.xcprivacy */; };
 		A1B2C3D4E5F60718293A4B22 /* NibPdfPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B21 /* NibPdfPlugin.swift */; };
+		B1C2D3E4F5A60718293A4B32 /* NibBlogPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5A60718293A4B31 /* NibBlogPlugin.swift */; };
+		B1C2D3E4F5A60718293A4B34 /* NibFolderPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5A60718293A4B33 /* NibFolderPlugin.swift */; };
 		A1B2C3D4E5F60718293A4E02 /* NibTextPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4E01 /* NibTextPlugin.swift */; };
 		A1B2C3D4E5F60718293A6A02 /* NibPicturePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A6A01 /* NibPicturePlugin.swift */; };
 		A1B2C3D4E5F60718293A5E02 /* NibSpeechPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A5E01 /* NibSpeechPlugin.swift */; };
@@ -34,11 +36,17 @@
 		A1B2C3D4E5F60718293A4B2A /* NibClipboardPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B29 /* NibClipboardPlugin.swift */; };
 		A1B2C3D4E5F60718293A4C02 /* NibRemindersPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C01 /* NibRemindersPlugin.swift */; };
 		A1B2C3D4E5F60718293A4B2C /* NibInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B2B /* NibInbox.swift */; };
+		C1D2E3F4A5B60718293A4B02 /* NibSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D2E3F4A5B60718293A4B01 /* NibSnapshot.swift */; };
+		C1D2E3F4A5B60718293A4B03 /* NibSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D2E3F4A5B60718293A4B01 /* NibSnapshot.swift */; };
 		A1B2C3D4E5F60718293A4B2E /* NibInboxPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B2D /* NibInboxPlugin.swift */; };
 		A1B2C3D4E5F60718293A4B30 /* NibIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B2F /* NibIntents.swift */; };
 		A876108F91A99E63DE4680B2 /* NibShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6997A2E42B12EF7F3186661F /* NibShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DCA0A1DFA4CAD417AD8075E5 /* NibInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B2B /* NibInbox.swift */; };
 		E9B2D18D7A7CCDA3A9F2015C /* NibWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C45B1A5B0604F44CCD7F06 /* NibWidgets.swift */; };
+		C1D2E3F4A5B60718293A4B07 /* NibEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D2E3F4A5B60718293A4B06 /* NibEntities.swift */; };
+		C1D2E3F4A5B60718293A4B08 /* NibEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D2E3F4A5B60718293A4B06 /* NibEntities.swift */; };
+		C1D2E3F4A5B60718293A4B0A /* ChosenWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D2E3F4A5B60718293A4B09 /* ChosenWidgets.swift */; };
+		C1D2E3F4A5B60718293A4B05 /* GoalWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D2E3F4A5B60718293A4B04 /* GoalWidgets.swift */; };
 		EF2B52E121AEDCBE8BDCBEA3 /* NibWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 03CF6326CCB95C4350A3F09D /* NibWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -79,6 +87,9 @@
 		05619698206AD825CF7D6241 /* NibWidgets.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = NibWidgets.entitlements; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		42C45B1A5B0604F44CCD7F06 /* NibWidgets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NibWidgets.swift; sourceTree = "<group>"; };
+		C1D2E3F4A5B60718293A4B06 /* NibEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibEntities.swift; sourceTree = "<group>"; };
+		C1D2E3F4A5B60718293A4B09 /* ChosenWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChosenWidgets.swift; sourceTree = "<group>"; };
+		C1D2E3F4A5B60718293A4B04 /* GoalWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalWidgets.swift; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -98,6 +109,8 @@
 		A1B2C3D4E5F60718293A4B07 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B09 /* Nib.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Nib.storekit; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B21 /* NibPdfPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibPdfPlugin.swift; sourceTree = "<group>"; };
+		B1C2D3E4F5A60718293A4B31 /* NibBlogPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibBlogPlugin.swift; sourceTree = "<group>"; };
+		B1C2D3E4F5A60718293A4B33 /* NibFolderPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibFolderPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4E01 /* NibTextPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibTextPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A6A01 /* NibPicturePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibPicturePlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A5E01 /* NibSpeechPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibSpeechPlugin.swift; sourceTree = "<group>"; };
@@ -109,6 +122,7 @@
 		A1B2C3D4E5F60718293A4B29 /* NibClipboardPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibClipboardPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4C01 /* NibRemindersPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibRemindersPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B2B /* NibInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibInbox.swift; sourceTree = "<group>"; };
+		C1D2E3F4A5B60718293A4B01 /* NibSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibSnapshot.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B2D /* NibInboxPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibInboxPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B2F /* NibIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NibIntents.swift; sourceTree = "<group>"; };
 		A8B5FCE2D686DF88D424566C /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -185,6 +199,8 @@
 				A1B2C3D4E5F60718293A4B07 /* PrivacyInfo.xcprivacy */,
 				A1B2C3D4E5F60718293A4B05 /* NibKeychainPlugin.swift */,
 				A1B2C3D4E5F60718293A4B21 /* NibPdfPlugin.swift */,
+				B1C2D3E4F5A60718293A4B31 /* NibBlogPlugin.swift */,
+				B1C2D3E4F5A60718293A4B33 /* NibFolderPlugin.swift */,
 				A1B2C3D4E5F60718293A4E01 /* NibTextPlugin.swift */,
 				A1B2C3D4E5F60718293A6A01 /* NibPicturePlugin.swift */,
 				A1B2C3D4E5F60718293A5E01 /* NibSpeechPlugin.swift */,
@@ -196,6 +212,8 @@
 				A1B2C3D4E5F60718293A4B29 /* NibClipboardPlugin.swift */,
 				A1B2C3D4E5F60718293A4C01 /* NibRemindersPlugin.swift */,
 				A1B2C3D4E5F60718293A4B2B /* NibInbox.swift */,
+				C1D2E3F4A5B60718293A4B01 /* NibSnapshot.swift */,
+				C1D2E3F4A5B60718293A4B06 /* NibEntities.swift */,
 				A1B2C3D4E5F60718293A4B2D /* NibInboxPlugin.swift */,
 				A1B2C3D4E5F60718293A4B2F /* NibIntents.swift */,
 				A1B2C3D4E5F60718293A4B03 /* MainViewController.swift */,
@@ -214,6 +232,8 @@
 			isa = PBXGroup;
 			children = (
 				42C45B1A5B0604F44CCD7F06 /* NibWidgets.swift */,
+				C1D2E3F4A5B60718293A4B04 /* GoalWidgets.swift */,
+				C1D2E3F4A5B60718293A4B09 /* ChosenWidgets.swift */,
 				61AAC85B352739E69B68B821 /* Info.plist */,
 				05619698206AD825CF7D6241 /* NibWidgets.entitlements */,
 			);
@@ -361,6 +381,8 @@
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				A1B2C3D4E5F60718293A4B06 /* NibKeychainPlugin.swift in Sources */,
 				A1B2C3D4E5F60718293A4B22 /* NibPdfPlugin.swift in Sources */,
+				B1C2D3E4F5A60718293A4B32 /* NibBlogPlugin.swift in Sources */,
+				B1C2D3E4F5A60718293A4B34 /* NibFolderPlugin.swift in Sources */,
 				A1B2C3D4E5F60718293A4E02 /* NibTextPlugin.swift in Sources */,
 				A1B2C3D4E5F60718293A6A02 /* NibPicturePlugin.swift in Sources */,
 				A1B2C3D4E5F60718293A5E02 /* NibSpeechPlugin.swift in Sources */,
@@ -372,6 +394,8 @@
 				A1B2C3D4E5F60718293A4B2A /* NibClipboardPlugin.swift in Sources */,
 				A1B2C3D4E5F60718293A4C02 /* NibRemindersPlugin.swift in Sources */,
 				A1B2C3D4E5F60718293A4B2C /* NibInbox.swift in Sources */,
+				C1D2E3F4A5B60718293A4B02 /* NibSnapshot.swift in Sources */,
+				C1D2E3F4A5B60718293A4B07 /* NibEntities.swift in Sources */,
 				A1B2C3D4E5F60718293A4B2E /* NibInboxPlugin.swift in Sources */,
 				A1B2C3D4E5F60718293A4B30 /* NibIntents.swift in Sources */,
 				A1B2C3D4E5F60718293A4B04 /* MainViewController.swift in Sources */,
@@ -384,6 +408,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				E9B2D18D7A7CCDA3A9F2015C /* NibWidgets.swift in Sources */,
+				C1D2E3F4A5B60718293A4B05 /* GoalWidgets.swift in Sources */,
+				C1D2E3F4A5B60718293A4B08 /* NibEntities.swift in Sources */,
+				C1D2E3F4A5B60718293A4B0A /* ChosenWidgets.swift in Sources */,
+				C1D2E3F4A5B60718293A4B03 /* NibSnapshot.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -440,7 +468,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NibWidgets/NibWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 56;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NibWidgets/Info.plist;
@@ -450,7 +478,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.10.12;
+				MARKETING_VERSION = 1.10.15;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios.widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -575,11 +603,11 @@
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "AppIcon-Paper AppIcon-Blue AppIcon-Green AppIcon-Rose";
+				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "AppIcon-Paper AppIcon-Blue AppIcon-Green AppIcon-Rose AppIcon-Vellum AppIcon-Sage AppIcon-Lilac AppIcon-Ember AppIcon-Tide AppIcon-Merlot AppIcon-NibPlus AppIcon-Inkwell";
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "App/App-Mac.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 56;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				INFOPLIST_FILE = App/Info.plist;
@@ -588,7 +616,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.10.12;
+				MARKETING_VERSION = 1.10.15;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -604,11 +632,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "AppIcon-Paper AppIcon-Blue AppIcon-Green AppIcon-Rose";
+				"ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES[sdk=iphone*]" = "AppIcon-Paper AppIcon-Blue AppIcon-Green AppIcon-Rose AppIcon-Vellum AppIcon-Sage AppIcon-Lilac AppIcon-Ember AppIcon-Tide AppIcon-Merlot AppIcon-NibPlus AppIcon-Inkwell";
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "App/App-Mac.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 56;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				INFOPLIST_FILE = App/Info.plist;
@@ -617,7 +645,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.10.12;
+				MARKETING_VERSION = 1.10.15;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				"PRODUCT_NAME[sdk=macosx*]" = Nib;
@@ -633,7 +661,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NibShare/NibShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 56;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NibShare/Info.plist;
@@ -643,7 +671,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.10.12;
+				MARKETING_VERSION = 1.10.15;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -660,7 +688,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NibWidgets/NibWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 56;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NibWidgets/Info.plist;
@@ -670,7 +698,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.10.12;
+				MARKETING_VERSION = 1.10.15;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios.widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -687,7 +715,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NibShare/NibShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 56;
 				DEVELOPMENT_TEAM = ALF2442YT3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NibShare/Info.plist;
@@ -697,7 +725,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.10.12;
+				MARKETING_VERSION = 1.10.15;
 				PRODUCT_BUNDLE_IDENTIFIER = app.nib.ios.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

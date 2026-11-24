@@ -17,6 +17,7 @@ import {
 } from './backup'
 import { arrange, readFolderSettings, replaceFolderSettings } from './folderSettings'
 import { deleteSavedLook, parseLook, readSavedLooks, replaceSavedLooks, saveLook, setLook } from './look'
+import { addSubmission, readSubmissions, removeSubmission, replaceSubmissions } from './submissions'
 import { allowedImageSrc, filterBodyImages } from './image'
 import { readSort, writeSort } from './sort'
 import { readTheme, writeTheme } from './theme'
@@ -254,6 +255,20 @@ describe('restoreBackup', () => {
     expect(readSavedLooks()).toEqual(saved)
   })
 
+  it('round-trips the submissions, a deleted one too, and leaves this device’s for a backup with none', async () => {
+    replaceSubmissions({})
+    expect(JSON.parse((await takeBackup()).content).preferences).not.toHaveProperty('submissions')
+    addSubmission({ document: 'one' }, { where: 'Granta', sent: '2026-11-01' })
+    removeSubmission(addSubmission({ book: 'Novel' }, { where: 'An agent' }))
+    const sent = readSubmissions()
+    const file = (await takeBackup()).content
+    replaceSubmissions({})
+    await restoreBackup(file)
+    expect(readSubmissions()).toEqual(sent)
+    await restoreBackup(serializeBackup(buildBackup([item({ id: 'one' })], [], {}, AT)))
+    expect(readSubmissions()).toEqual(sent)
+  })
+
   it('round-trips a document’s goal, a removed one, and none', async () => {
     const file = serializeBackup(
       buildBackup(
@@ -316,6 +331,37 @@ describe('restoreBackup', () => {
     expect((await items.get('taken-away'))?.position).toBeNull()
     expect(await items.get('never')).not.toHaveProperty('position')
     expect(await items.get('odd')).not.toHaveProperty('position')
+  })
+
+  it('round-trips a chapter’s summary and status, ones taken off, and none, dropping what makes no sense', async () => {
+    const file = serializeBackup(
+      buildBackup(
+        [
+          item({ id: 'carded', folder: 'Novel', summary: 'Mara finds the logbook.', status: 'revised' }),
+          item({ id: 'taken-off', folder: 'Novel', summary: null, status: null }),
+          item({ id: 'never' }),
+          item({ id: 'odd', folder: 'Novel', summary: 3 as unknown as string, status: 'draft' as unknown as 'done' }),
+        ],
+        [],
+        {},
+        AT,
+      ),
+    )
+    await restoreBackup(file)
+    expect(await items.get('carded')).toMatchObject({ summary: 'Mara finds the logbook.', status: 'revised' })
+    expect(await items.get('taken-off')).toMatchObject({ summary: null, status: null })
+    expect(await items.get('never')).not.toHaveProperty('summary')
+    expect(await items.get('odd')).not.toHaveProperty('summary')
+    expect(await items.get('odd')).not.toHaveProperty('status')
+  })
+
+  it('round-trips a screenplay, one taken off, and none, dropping what makes no sense', async () => {
+    const file = serializeBackup(buildBackup([item({ id: 'script', screenplay: true }), item({ id: 'off', screenplay: null }), item({ id: 'never' }), item({ id: 'odd', screenplay: 'yes' as unknown as true })], [], {}, AT))
+    await restoreBackup(file)
+    expect((await items.get('script'))?.screenplay).toBe(true)
+    expect((await items.get('off'))?.screenplay).toBeNull()
+    expect(await items.get('never')).not.toHaveProperty('screenplay')
+    expect(await items.get('odd')).not.toHaveProperty('screenplay')
   })
 
   it('round-trips the stamps put on a document, none put, and none ever, dropping what makes no sense', async () => {
@@ -475,6 +521,29 @@ describe('restoreBackup', () => {
     expect(stored).not.toContain(svg)
     expect(stored).not.toContain('nib-image:')
     expect((await items.get('svg'))?.body).toEqual(filterBodyImages(withImage('no', svg)))
+  })
+
+  // Read for its pictures before it was looked over, a body that wasn't one threw something other than
+  // "damaged", and the writer was told the device couldn't save. Odd parts are dropped, as from sync.
+  it('restores a document whose text is damaged in part, without what is', async () => {
+    // As text: nested this far, it's more than making or writing it as an object can follow either.
+    const deep = `${'{"type":"blockquote","content":['.repeat(20_000)}${JSON.stringify(para('too deep').content![0])}${']}'.repeat(20_000)}`
+    const bodies: Record<string, unknown> = {
+      text: { type: 'doc', content: 'abc' },
+      hole: { type: 'doc', content: [null, para('kept').content![0]] },
+      deep: { type: 'doc', content: [para('kept').content![0], 'DEEP'] },
+      link: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'kept', marks: [{ type: 'link', attrs: { href: 123 } }, { type: 'bold' }] }] }] },
+    }
+    const backup = JSON.parse(serializeBackup(buildBackup(Object.keys(bodies).map((id) => item({ id })), [], {}, AT)))
+    for (const stored of backup.items) stored.body = bodies[stored.id]
+    await restoreBackup(JSON.stringify(backup).replace('"DEEP"', deep))
+    expect((await items.get('text'))?.body).toEqual({ type: 'doc', content: [] })
+    expect((await items.get('hole'))?.body).toEqual(para('kept'))
+    // Its quotes are kept as far down as any document goes, and no words from below that.
+    expect((await items.get('deep'))?.body.content?.[0]).toEqual(para('kept').content![0])
+    expect(JSON.stringify((await items.get('deep'))?.body)).not.toContain('too deep')
+    // The words and their bold, without the link that had a number for an address: drawn, that one threw.
+    expect((await items.get('link'))?.body).toEqual({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'kept', marks: [{ type: 'bold' }] }] }] })
   })
 
   it('leaves the database alone when the file is not a backup', async () => {

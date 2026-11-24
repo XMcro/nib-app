@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CLAIM_AGAIN_MS, CoinCodes, coinRequests, handleCoins, USES_PER_NETWORK, USES_PER_WIDE, type CoinDeps } from './coins'
 import { frontDoor, type Routes } from './door'
+import { COINS_PUBLIC_KEY } from './signing'
 import { MAX_COINS } from './wire.mjs'
 import { sqlite } from './testing'
 
@@ -9,8 +10,13 @@ const OTHER = 'b'.repeat(64)
 const ADMIN = { Authorization: 'Bearer the-secret' }
 const NETS: [string, string] = ['here', 'wide']
 
+/** A pair's public half as the Worker is told it: the raw key, in base64url. */
+const publicHalf = async (pair: CryptoKeyPair) => Buffer.from(await crypto.subtle.exportKey('raw', pair.publicKey)).toString('base64url')
+
 /** handleCoins(), wired to a real CoinCodes in memory, as index.ts wires the Durable Object; the clock is the test's. */
-function server(admin: string | undefined = 'the-secret', signingKey?: string) {
+/** `local`: as under wrangler dev, where coins may go unsigned; by default that's so when no key to sign with is given. */
+/** `checkedWith`: the public half the key to sign with must be the pair of; the app's own if none is given. */
+function server(admin: string | undefined = 'the-secret', signingKey?: string, local = signingKey === undefined, checkedWith?: string) {
   const clock = { now: Date.UTC(2026, 10, 10, 12) }
   const codes = new CoinCodes(sqlite())
   const ask = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
@@ -18,9 +24,11 @@ function server(admin: string | undefined = 'the-secret', signingKey?: string) {
       coins: coinRequests(codes, { alarm: async () => {} }, () => clock.now),
       admin,
       signingKey,
+      checkedWith,
+      local,
     }).then(async (response) => ({ status: response!.status, body: await response!.json() }))
   const redeem = (claim: string, code = CODE, ip = '198.51.100.7') => ask('POST', '/v1/coins/redeem', { code, claim }, { 'CF-Connecting-IP': ip })
-  return { clock, ask, redeem }
+  return { clock, ask, redeem, codes }
 }
 
 describe('codes for coins, on the server', () => {
@@ -32,7 +40,8 @@ describe('codes for coins, on the server', () => {
       const codes = new CoinCodes(sqlite())
       codes.set(CODE, { coins: 10 })
       const real = coinRequests(codes, { alarm: async () => {} }, () => 0)
-      const deps: CoinDeps = { coins: { ...real, redeem: async (code, claim, networks) => (asked.push(claim), real.redeem(code, claim, networks)) }, admin: 'the-secret', limiter }
+      // As under wrangler dev, with no key to sign with.
+      const deps: CoinDeps = { coins: { ...real, redeem: async (code, claim, networks) => (asked.push(claim), real.redeem(code, claim, networks)) }, admin: 'the-secret', limiter, local: true }
       const redeem = (claim: string) => handleCoins(new Request('https://sync.nibprivacy.com/v1/coins/redeem', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': IP }, body: JSON.stringify({ code: CODE, claim }) }), deps)
       return { asked, redeem }
     }
@@ -96,7 +105,7 @@ describe('codes for coins, on the server', () => {
   // Any 200 with coins was believed, so a proxy on the phone turned any string into coins.
   it('sign the coins they give, for the fingerprint and the claim, so the app believes only coins from here', async () => {
     const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair
-    const { ask, redeem } = server('the-secret', Buffer.from(await crypto.subtle.exportKey('pkcs8', pair.privateKey)).toString('base64'))
+    const { ask, redeem } = server('the-secret', Buffer.from(await crypto.subtle.exportKey('pkcs8', pair.privateKey)).toString('base64'), false, await publicHalf(pair))
     await ask('POST', '/v1/coins/codes', { code: CODE, coins: 500 }, ADMIN)
     const { status, body } = await redeem('claim-one-1')
     expect(status).toBe(200)
@@ -220,6 +229,7 @@ describe('codes for coins, on the server', () => {
       handleCoins(new Request('https://sync.nibprivacy.com/v1/coins/redeem', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '198.51.100.7' }, body: JSON.stringify({ code: CODE, claim: `claim-${admin}` }) }), {
         coins: { ...real, redeem: async (code, claim, networks) => (asked.push([code, claim, networks]), real.redeem(code, claim, networks)) },
         admin,
+        local: true,
       })
     await ask('one-secret')
     await ask('another-secret')
@@ -258,6 +268,38 @@ describe('codes for coins, on the server', () => {
     expect(response.status).toBe(204)
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost')
     expect(response.headers.get('Access-Control-Allow-Headers')).toContain('Content-Type')
+  })
+
+  // The use was counted first and the answer signed after: with the key to sign with malformed (pasted wrong at a
+  // rotation, say) every redemption spent a use and failed, and a day on its claim was "used up", the coins never
+  // given; with none set, they went unsigned, which the app doesn't believe (the server audit of 2026-11-23).
+  it('count no use when there’s no good key to sign the coins with, and give them once there is', async () => {
+    const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair
+    const good = Buffer.from(await crypto.subtle.exportKey('pkcs8', pair.privateKey)).toString('base64')
+    for (const key of ['bm90IGEga2V5', 'not base64 at all!', undefined]) {
+      const { ask, redeem, codes } = server('the-secret', key, false)
+      await ask('POST', '/v1/coins/codes', { code: CODE, coins: 100, uses: 1 }, ADMIN)
+      expect((await redeem('claim-one-1')).status, String(key)).toBe(503)
+      expect(codes.show(CODE)!.used, String(key)).toBe(0)
+    }
+    const { ask, redeem, codes } = server('the-secret', good, false, await publicHalf(pair))
+    await ask('POST', '/v1/coins/codes', { code: CODE, coins: 100, uses: 1 }, ADMIN)
+    expect((await redeem('claim-one-1')).body).toMatchObject({ coins: 100, sig: expect.any(String) })
+    expect(codes.show(CODE)!.used).toBe(1)
+  })
+
+  // A key that signs and isn't the one the app checks with (another pasted at a rotation) passed as good: every
+  // answer was signed, refused by the app, and its use counted (found checking the fix, 2026-11-23).
+  it('count no use when the key to sign with isn’t the pair of the one the app checks with', async () => {
+    const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair
+    const another = Buffer.from(await crypto.subtle.exportKey('pkcs8', pair.privateKey)).toString('base64')
+    // Against the app's own key, which is what the Worker holds it to when nothing else is said.
+    const { ask, redeem, codes } = server('the-secret', another, false)
+    await ask('POST', '/v1/coins/codes', { code: CODE, coins: 100, uses: 1 }, ADMIN)
+    expect((await redeem('claim-one-1')).status).toBe(503)
+    expect(codes.show(CODE)!.used).toBe(0)
+    // And the app's own is the one it has always checked with.
+    expect(Buffer.from(COINS_PUBLIC_KEY, 'base64url').toString('hex')).toBe('d1f297a2eb39a454f2831e99d692c2590c87b4eb15eaa5742306e76f9f553e8f')
   })
 
   it('leave other routes to theirs', async () => {

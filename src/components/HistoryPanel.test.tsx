@@ -30,7 +30,7 @@ const revision = (id: string, text: string, agoMs: number): Revision => ({
 const versions = () => within(screen.getByRole('list', { name: 'Versions' })).getAllByRole('listitem')
 
 function setup(revisions: Revision[], keepsAll = true) {
-  const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn() }
+  const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn(), compares: true }
   render(<HistoryPanel revisions={revisions} keepsAll={keepsAll} {...handlers} />)
   return handlers
 }
@@ -48,7 +48,7 @@ describe('HistoryPanel', () => {
   })
 
   it('lets a read-only document’s versions be read, and none of them brought back', async () => {
-    const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn() }
+    const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn(), compares: true }
     render(<HistoryPanel revisions={[revision('r1', 'The boats came in early.', 0), revision('r2', 'The boats came in late.', 2 * HOUR)]} keepsAll {...handlers} readOnly />)
     await userEvent.click(screen.getByText('2h ago'))
     expect(screen.getByText('late').tagName).toBe('DEL')
@@ -71,7 +71,7 @@ describe('HistoryPanel', () => {
   })
 
   it('compares with the text as stored, when it is given', async () => {
-    const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn() }
+    const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn(), compares: true }
     const now = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The boats came in at dawn.' }] }] }
     render(<HistoryPanel revisions={[revision('r1', 'The boats came in early.', 0), revision('r2', 'The boats came in late.', 2 * HOUR)]} now={now} keepsAll {...handlers} />)
     await userEvent.click(screen.getByText('2h ago'))
@@ -85,6 +85,23 @@ describe('HistoryPanel', () => {
     expect(screen.getByText('2h ago').closest('button')).toBeTruthy()
   })
 
+  // Moved to Plus 2026-11-20, for everyone: reading a version and restoring it whole stay free.
+  it('shows a version as it was without Plus, to restore whole, and asks for Plus to compare it', async () => {
+    const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn(), compares: false }
+    const older = revision('r2', 'The boats came in late.', 2 * HOUR)
+    render(<HistoryPanel revisions={[revision('r1', 'The boats came in early.', 0), older]} keepsAll {...handlers} />)
+    await userEvent.click(screen.getByText('2h ago'))
+    expect(screen.getByRole('heading').textContent).toBe('Today, 10:00 AM')
+    expect(screen.getByText('The boats came in late.')).toBeTruthy()
+    expect(document.querySelector('del, ins')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Bring back/ })).toBeNull()
+
+    await userEvent.click(screen.getByText('Compare it with now, and bring back one paragraph'))
+    expect(handlers.onPlus).toHaveBeenCalledWith(expect.stringMatching(/^Comparing a version .* are part of Nib Plus\./))
+    await userEvent.click(screen.getByText('Restore this whole version'))
+    expect(handlers.onRestore).toHaveBeenCalledWith(older)
+  })
+
   it('restores the version being compared', async () => {
     const older = revision('r2', 'older text', 2 * HOUR)
     const { onRestore } = setup([revision('r1', 'current text', 0), older])
@@ -96,7 +113,7 @@ describe('HistoryPanel', () => {
   describe('without Plus', () => {
     it('counts the older ones by their times, read or not', () => {
       const now = Date.now()
-      const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn() }
+      const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn(), compares: true }
       render(<HistoryPanel revisions={[revision('r1', 'now', 0)]} times={[now, now - 7 * DAY, now - 40 * DAY, now - 60 * DAY]} keepsAll={false} {...handlers} />)
       expect(screen.getByText('2 older versions, from before the last 30 days')).toBeTruthy()
     })
@@ -150,7 +167,7 @@ describe('HistoryPanel', () => {
 })
 
 describe('a long history', () => {
-  const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn() }
+  const handlers = { onBack: vi.fn(), onRestore: vi.fn(), onBringBack: vi.fn(), onPlus: vi.fn(), compares: true }
 
   it('asks for more as the list nears the end of those read', () => {
     const onMore = vi.fn()

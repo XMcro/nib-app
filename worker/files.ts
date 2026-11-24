@@ -1,7 +1,7 @@
 import type { Call } from './answer'
-import { cors, json, TooLarge } from './http'
+import { cors, json, parseJson, TooLarge } from './http'
 import type { Asker, LibraryRequests } from './library'
-import { FILE_HASH_HEADER, KEY_SHAPE, MAX_SEALED_FILE } from './wire.mjs'
+import { FILE_HASH_HEADER, KEY_SHAPE, MAX_RECORDS, MAX_SEALED_FILE } from './wire.mjs'
 
 /**
  * A library's files on the server (worker/sync sends these routes here, with
@@ -11,6 +11,7 @@ import { FILE_HASH_HEADER, KEY_SHAPE, MAX_SEALED_FILE } from './wire.mjs'
  *   PUT    /v1/files/<key>     one, sealed on the device, with its length and its hash
  *   GET    /v1/files/<key>     its bytes, as they were sent
  *   DELETE /v1/files/<key>
+ *   POST   /v1/files/used      { keys, done? }: the files this device's documents use, a thousand at a go
  *
  * A file is sealed before it leaves the device and named by a key the device
  * makes, so the server can't read it or tell which note it belongs to. What
@@ -37,6 +38,7 @@ export async function emptyFiles(store: FileStore, home: string) {
 
 const FILE = new RegExp(`^/v1/files/(${KEY_SHAPE})$`)
 const HASH = /^[0-9a-f]{64}$/
+const KEY = new RegExp(`^${KEY_SHAPE}$`)
 
 /** Whether a request sends a file, and so says its body's hash in a header (worker/sync `proof`). */
 export const sendsFile = (request: Request) => request.method === 'PUT' && FILE.test(new URL(request.url).pathname)
@@ -47,14 +49,24 @@ export type FileDeps = {
   asked(ask: (stub: LibraryRequests, asker: Asker) => Promise<Call>): Promise<Call>
   /** Asks the library as the Worker itself, once the request has been let in. */
   reach(ask: (stub: LibraryRequests) => Promise<Call>): Promise<Call>
+  /** The request's body, as worker/sync read it (and, of a signed request, checked it). */
+  body(): Promise<Uint8Array<ArrayBuffer>>
   /** Lets work go on after the sender has gone (the Worker's `ctx.waitUntil`): storing a file and counting it. */
   waitUntil?(work: Promise<unknown>): void
 }
 
-export async function handleFiles(request: Request, { store, asked, reach, waitUntil }: FileDeps): Promise<Response> {
+export async function handleFiles(request: Request, { store, asked, reach, body, waitUntil }: FileDeps): Promise<Response> {
   const path = new URL(request.url).pathname
   const reply = ({ status, body }: Call) => json(request, status, body)
   if (path === '/v1/files' && request.method === 'GET') return reply(await asked((stub, asker) => stub.files(asker)))
+  if (path === '/v1/files/used' && request.method === 'POST') {
+    const said = parseJson(await body())
+    const keys = said?.keys
+    if (!Array.isArray(keys) || keys.length > MAX_RECORDS || !keys.every((one) => typeof one === 'string' && KEY.test(one)) || (said?.done !== undefined && typeof said.done !== 'boolean')) {
+      return json(request, 400, { error: 'Expected { keys, done }.' })
+    }
+    return reply(await asked((stub, asker) => stub.namedFiles(asker, keys, said?.done === true)))
+  }
   const key = FILE.exec(path)?.[1]
   if (!key) return json(request, 404, { error: 'Not found.' })
   const named = (home: Call) => `${(home.body as { home: string }).home}/${key}`
@@ -96,8 +108,16 @@ export async function handleFiles(request: Request, { store, asked, reach, waitU
   if (request.method === 'GET') {
     const known = await asked((stub, asker) => stub.authorise(asker))
     if (known.status !== 200) return reply(known)
+    // When the library was asked, by its own clock, before the store is.
+    const since = (known.body as { at: number }).at
     const file = await store.get(named(known))
-    if (!file) return json(request, 404, { error: 'No such file.' })
+    if (!file) {
+      // Listed, and not in the store (deleted as it was sent again, say): forgotten, so the device that has it
+      // sees the server hasn't, and sends it again (src/sync/files `nameFiles`). It was listed for good, and fetched
+      // by none. Only as it was listed before the store was asked: one stored since is there.
+      await reach((stub) => stub.fileMissing(key, since))
+      return json(request, 404, { error: 'No such file.' })
+    }
     return new Response(file.body, {
       headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(file.size), 'Cache-Control': 'no-store', ...cors(request) },
     })

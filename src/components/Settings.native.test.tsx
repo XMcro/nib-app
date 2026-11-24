@@ -16,8 +16,17 @@ vi.mock('../lib/plus', async (importOriginal) => ({
   store: { products: vi.fn(async () => ({ products: [] })), purchase: vi.fn(), restore: vi.fn(), manage: vi.fn() },
 }))
 
+// The year's card: jsdom draws no canvas, and nothing is handed over.
+vi.mock('./yearCard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./yearCard')>()),
+  drawCard: vi.fn(async () => ({ png: new Blob(['png'], { type: 'image/png' }), src: 'data:image/png;base64,', title: 'Your writing so far', alt: 'The card' })),
+}))
+vi.mock('../lib/download', async (importOriginal) => ({ ...(await importOriginal<typeof import('../lib/download')>()), download: vi.fn() }))
+
 const { Settings } = await import('./Settings')
+const { YearCardOffer } = await import('./Goals')
 const { store } = await import('../lib/plus')
+const { download } = await import('../lib/download')
 
 /** Settings opens from a gear elsewhere (App's \`openTo\`); this stands in for it. */
 function WithGear(props: ComponentProps<typeof Settings>) {
@@ -117,6 +126,67 @@ describe('Goals', () => {
     await userEvent.click(screen.getByRole('button', { name: /Goals/ }))
     expect(screen.getByRole('img').getAttribute('aria-label')).toBe('1,600 words on 2 days in the last 26 weeks')
     expect(screen.getByTitle(/: 1,200 words$/)).toBeTruthy()
+    localStorage.clear()
+  })
+
+  it('shows the year’s stats under the calendar, with Plus', async () => {
+    // Friday 20 November 2026.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-20T12:00:00') })
+    onTestFinished(() => void vi.useRealTimers())
+    localStorage.setItem('nib-goal-calendar', JSON.stringify({ '2026-11-03': 1200, '2026-11-18': 100, '2026-11-19': 300, '2026-11-20': 250 }))
+    localStorage.setItem('nib-goal-folders', JSON.stringify({ '2026-11-19': { Novel: 300 }, '2026-11-20': { '': 250 } }))
+    const hours = Array<number>(24).fill(0)
+    hours[21] = 400
+    localStorage.setItem('nib-goal-hours', JSON.stringify({ day: '2026-11-20', last: 250, years: { 2026: hours } }))
+    await open({ active: true })
+    await userEvent.click(screen.getByRole('button', { name: /Goals/ }))
+    const row = (name: string) => screen.getByText(name).nextElementSibling?.textContent
+    expect(row('This week')).toBe('650 words')
+    expect(row('2026 so far')).toBe('1,850 words on 4 days')
+    expect(row('Best day')).toMatch(/: 1,200 words$/)
+    expect(row('Longest run')).toBe('3 days')
+    expect(row('Run going now')).toBe('3 days')
+    expect(row('Busiest hour')).toMatch(/9.*to.*10/)
+    expect(row('Novel')).toBe('300 words')
+    expect(row('In no folder')).toBe('250 words')
+    localStorage.clear()
+  })
+
+  it('offers the year’s card in December, free, and hands it over', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-12-12T12:00:00') })
+    onTestFinished(() => void vi.useRealTimers())
+    localStorage.setItem('nib-goal-calendar', JSON.stringify({ '2026-10-02': 400, '2026-12-11': 250 }))
+    await open({ active: false })
+    await userEvent.click(screen.getByRole('button', { name: /Goals/ }))
+    await userEvent.click(screen.getByRole('button', { name: /Your writing so far/ }))
+    expect(screen.getByAltText('The card')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Share…' }))
+    expect(download).toHaveBeenCalledWith(expect.any(Blob), 'Your writing so far 2026.png', 'image/png')
+    localStorage.clear()
+  })
+
+  it('offered unasked, shows the card at once, to share or put off', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-12-12T12:00:00') })
+    onTestFinished(() => void vi.useRealTimers())
+    localStorage.setItem('nib-goal-calendar', JSON.stringify({ '2026-12-11': 250 }))
+    const onDone = vi.fn()
+    render(<YearCardOffer onDone={onDone} />)
+    expect(screen.getByRole('heading', { name: 'Your 2026, as a card' })).toBeTruthy()
+    expect(await screen.findByAltText('The card')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Share…' }))
+    expect(download).toHaveBeenLastCalledWith(expect.any(Blob), 'Your writing so far 2026.png', 'image/png')
+    await userEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(onDone).toHaveBeenCalled()
+    localStorage.clear()
+  })
+
+  it('offers no card before December, or with nothing written', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-20T12:00:00') })
+    onTestFinished(() => void vi.useRealTimers())
+    localStorage.setItem('nib-goal-calendar', JSON.stringify({ '2026-11-19': 250 }))
+    await open({ active: true })
+    await userEvent.click(screen.getByRole('button', { name: /Goals/ }))
+    expect(screen.queryByRole('button', { name: /Your writing so far/ })).toBeNull()
     localStorage.clear()
   })
 

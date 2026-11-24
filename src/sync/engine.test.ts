@@ -326,6 +326,42 @@ describe('syncOnce', () => {
     expect((await items.get(id))?.position).toBeNull()
   })
 
+  it('syncs a chapter’s summary and status, keeps them when an older Nib sends the page without, and takes them off', async () => {
+    const id = await items.create('page', doc('Chapter one'), { folder: 'Novel' })
+    await items.setSummary(id, 'Mara finds the logbook.')
+    await items.setStatus(id, 'done')
+    await syncOnce(keys, server.api)
+    expect(await serverItem(id)).toMatchObject({ summary: 'Mara finds the logbook.', status: 'done' })
+
+    // Edited on a device from before the corkboard, which drops fields it doesn't know.
+    const created = (await items.get(id))!
+    await otherDevice({ id, kind: 'page', body: doc('Edited on 1.10'), createdAt: created.createdAt, updatedAt: created.updatedAt + 1, folder: 'Novel' })
+    await syncOnce(keys, server.api)
+    expect(await text(id)).toBe('Edited on 1.10')
+    expect(await items.get(id)).toMatchObject({ summary: 'Mara finds the logbook.', status: 'done' })
+
+    await otherDevice({ id, kind: 'page', body: doc('Back to a draft'), createdAt: created.createdAt, updatedAt: created.updatedAt + 2, folder: 'Novel', summary: null, status: null })
+    await syncOnce(keys, server.api)
+    expect(await items.get(id)).toMatchObject({ summary: null, status: null })
+  })
+
+  it('syncs a screenplay, keeps it one when an older Nib sends the page without it, and takes it off', async () => {
+    const id = await items.create('page', doc('INT. HOUSE - DAY'), { screenplay: true })
+    await syncOnce(keys, server.api)
+    expect(await serverItem(id)).toMatchObject({ screenplay: true })
+
+    // Edited on a device from before screenplays, which shows its lines and drops the field.
+    const created = (await items.get(id))!
+    await otherDevice({ id, kind: 'page', body: doc('EXT. BEACH - NIGHT'), createdAt: created.createdAt, updatedAt: created.updatedAt + 1 })
+    await syncOnce(keys, server.api)
+    expect(await text(id)).toBe('EXT. BEACH - NIGHT')
+    expect((await items.get(id))?.screenplay).toBe(true)
+
+    await otherDevice({ id, kind: 'page', body: doc('A page again'), createdAt: created.createdAt, updatedAt: created.updatedAt + 2, screenplay: null })
+    await syncOnce(keys, server.api)
+    expect((await items.get(id))?.screenplay).toBeNull()
+  })
+
   it('syncs the stamps put on a document, keeps them when an older Nib sends it without, and takes them off', async () => {
     const id = await items.create('note', doc('Stamped'))
     await items.setStamps(id, [{ day: '2026-11-04', no: 127 }])

@@ -17,6 +17,7 @@ import { describeReminder, reminderOf, remindersAvailable, repeatWord } from '..
 import { SORTS, SORT_LABEL } from '../lib/sort'
 import { previewOf } from '../lib/text'
 import { relativeTime } from '../lib/time'
+import { isScreenplay, scriptPreview } from '../lib/fountain'
 import { isLocked, shownTitle, vaultOpen } from '../lib/vault'
 import { Banner } from './Banner'
 import { Coin } from './Coin'
@@ -41,6 +42,10 @@ type LibraryProps = {
   onDelete: (which: string | string[]) => void
   onTogglePin: (id: string) => void
   onNew: () => void
+  /** In Pages: a new page written as a screenplay (lib/fountain). Not offered where Plus can't be had. */
+  onNewScreenplay?: () => void
+  /** Without Plus, the offer says it's with it. */
+  screenplayPlus?: boolean
   /** A new note or page from this template (lib/templates). */
   onUseTemplate?: (id: string) => void
   sort: Sort
@@ -292,6 +297,12 @@ function LibraryScreen(props: LibraryProps) {
               </>
             ) : (
               <>
+                {kind === 'page' && props.onNewScreenplay && (
+                  <button onClick={props.onNewScreenplay} aria-label="New screenplay" className={controlClass}>
+                    + Screenplay
+                    {props.screenplayPlus && <span className="ml-1 text-[10.5px] text-faint">Plus</span>}
+                  </button>
+                )}
                 {manuscript && (
                   <button onClick={() => setArranging(true)} className={controlClass}>
                     Manuscript
@@ -828,7 +839,7 @@ const Card = memo(function Card({
   // A locked note's, only while the vault is open.
   const { folder, categories } = filingOf(item)
   // A locked note's text is sealed with it, so it has no preview.
-  const preview = locked ? '' : previewOf(item.body)
+  const preview = locked ? '' : isScreenplay(item) ? scriptPreview(item.body) : previewOf(item.body)
   // The pin and ×, each its own width, unseen under a pointer till it's over the card or one has the focus; seen always by touch. What's in use while
   // they're unseen (Use, a pin that's in) slides to the card's edge, into their room, and back as they come (index.css .nib-card-tool).
   const tool = 'nib-tap nib-card-tool flex w-7 cursor-pointer items-center justify-center rounded text-[12px] text-muted hover:text-ink pointer-coarse:size-11 pointer-coarse:opacity-100'
@@ -921,9 +932,10 @@ const Card = memo(function Card({
         </div>
         {preview && <div className="line-clamp-3 flex-1 text-[13px] leading-[1.5] wrap-break-word text-muted phone:line-clamp-2">{preview}</div>}
         <div className="mt-auto flex w-full items-center gap-2 text-[12px] text-muted">
-          {showKind && (
+          {/* A screenplay says so, in Pages too (lib/fountain). */}
+          {(showKind || isScreenplay(item)) && (
             <>
-              <span>{item.kind === 'note' ? 'Note' : 'Page'}</span>
+              <span>{item.kind === 'note' ? 'Note' : isScreenplay(item) ? 'Screenplay' : 'Page'}</span>
               <span aria-hidden>·</span>
             </>
           )}

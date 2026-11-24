@@ -73,6 +73,35 @@ footer a {
   font: 15px/1.7 ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
+/* A screenplay (src/reader/script): Courier on a line of sixty characters, each element from its own indent, as Nib's HTML of one (lib/scriptExport). */
+.draft.script {
+  max-width: 6in;
+  margin: 0 auto;
+  font: 16px/1.25 'Courier Prime', 'Courier New', Courier, monospace;
+}
+.draft.script p { margin: 1.25em 0 0; white-space: pre-wrap; overflow-wrap: break-word; }
+.draft.script .sp-parenthetical,
+.draft.script .sp-dialogue { margin-top: 0; }
+.draft.script .sp-character { margin-left: 36.67%; }
+.draft.script .sp-parenthetical { margin-left: 26.67%; margin-right: 31.67%; }
+.draft.script .sp-dialogue,
+.draft.script .sp-lyric { margin-left: 16.67%; margin-right: 25%; }
+.draft.script .sp-transition,
+.draft.script .align-right { text-align: right; }
+.draft.script .sp-centered,
+.draft.script .align-center { text-align: center; }
+.draft.script .sp-scene { position: relative; }
+.draft.script .number { position: absolute; top: 0; color: var(--muted); }
+.draft.script .number.before { right: calc(100% + 1ch); }
+.draft.script .number.after { left: calc(100% + 1ch); }
+.draft.script .dual { display: flex; gap: 1em; }
+.draft.script .dual > div { flex: 1; min-width: 0; }
+.draft.script .dual p { margin-left: 0; margin-right: 0; }
+.draft.script .dual .sp-character { text-align: center; }
+.draft.script .page-break { margin-top: 3em; }
+.draft.script .title-page { padding-bottom: 3em; border-bottom: 1px solid var(--line); margin-bottom: 1em; }
+.draft.script .title-page p { margin: 0; min-height: 1.25em; }
+
 .draft h1,
 .draft h2,
 .draft h3,

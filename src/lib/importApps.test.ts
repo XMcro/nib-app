@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
-import { gzipSync, strToU8, zipSync } from 'fflate'
+import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate'
 import type { JSONContent } from '@tiptap/react'
 import type { Item, Kind } from '../db/db'
 import { buildExport } from './export'
@@ -75,7 +75,7 @@ const images = (doc: Imported) => nodes(doc.body, 'image').map((node) => String(
 
 describe('IMPORT_ACCEPT', () => {
   it('lists every format the importer reads', () => {
-    for (const extension of ['.md', '.markdown', '.txt', '.json', '.enex', '.html', '.htm', '.zip', '.tgz', '.jex', '.backup', '.bear2bk', '.textpack', '.docx']) {
+    for (const extension of ['.md', '.markdown', '.txt', '.json', '.enex', '.html', '.htm', '.zip', '.tgz', '.jex', '.backup', '.bear2bk', '.textpack', '.docx', '.fountain', '.fdx']) {
       expect(IMPORT_ACCEPT.split(',')).toContain(extension)
     }
   })
@@ -359,6 +359,33 @@ describe('Markdown that marked is slow on', () => {
     const text = plainText(documents[0].body)
     for (const words of ['Thrice quoted', 'Twice listed', 'A quote in a list']) expect(text).toContain(words)
     expect(text).not.toMatch(/[\\>]|- /)
+  })
+
+  // What only looks like a code fence's opening: the taming took it for one, and left all after it as written.
+  // A post of 100,000 characters to the inbox took 47 s that way.
+  it('reads unmatched emphasis at once after a line that isn’t the code fence it looks like', async () => {
+    for (const before of ['```a```', '<pre>\n```\n</pre>', '<!--\n```\n-->', '<div>\n```\n</div>']) {
+      const stars = (n: number) => read(file(`${before}\n\n${'**a *'.repeat(n)}\n\nAfter`, 'stars.md'))
+      expect(await growth(stars, 2000), before).toBeLessThan(10)
+      const text = plainText((await stars(8000)).documents[0].body)
+      expect(text, before).toContain('After')
+      expect(text.split('a').length - 1, before).toBeGreaterThanOrEqual(8000)
+    }
+  })
+
+  it('reads nesting past what marked can follow after a line that isn’t the code fence it looks like', async () => {
+    for (const deep of ['>'.repeat(3000) + ' quoted', Array.from({ length: 700 }, (_, i) => `${'  '.repeat(i)}- item ${i}`).join('\n')]) {
+      const { documents } = await read(file(`<pre>\n\`\`\`\n</pre>\n\n${deep}\n\nAfter`, 'deep.md'))
+      expect(plainText(documents[0].body), deep.slice(0, 8)).toContain('After')
+    }
+  })
+
+  it('leaves a real code fence as written, whatever it holds, to its real end', async () => {
+    const code = `${'**a *'.repeat(3000)}\n\`\`\`not the end\n${' '.repeat(80)}*_still code_*`
+    const { documents } = await read(file(`Before\n\n\`\`\`\n${code}\n\`\`\`\n\nAfter`, 'code.md'))
+    const block = documents[0].body.content?.find((node) => node.type === 'codeBlock')
+    // marked ends a block of code with a new line.
+    expect(block?.content?.[0].text).toBe(`${code}\n`)
   })
 
   it('keeps a long checklist’s boxes among many marks', async () => {
@@ -829,6 +856,14 @@ describe('Notesnook and other zips', () => {
     locator.setUint32(16, 1, true)
     const forged = new Uint8Array([...bytes.subarray(0, end), ...new Uint8Array(record.buffer), ...new Uint8Array(locator.buffer), ...bytes.subarray(end)])
     expect(await read(file(forged, 'zip64.zip'))).toEqual({ documents: [], skipped: ['zip64.zip: couldn’t be opened'] })
+
+    // The same record four bytes short, in the classic record's comment at the file's end: fflate still reads it,
+    // and the check, wanting all 56 bytes there, looked past it to the decoy.
+    view.setUint16(end + 20, 52, true)
+    locator.setBigUint64(8, BigInt(end + 20 + 22), true)
+    const short = new Uint8Array([...bytes.subarray(0, end), ...new Uint8Array(locator.buffer), ...bytes.subarray(end), ...new Uint8Array(record.buffer, 0, 52)])
+    expect(Object.keys(unzipSync(short))).toEqual(['a.md', 'b.md'])
+    expect(await read(file(short, 'short.zip'))).toEqual({ documents: [], skipped: ['short.zip: couldn’t be opened'] })
   })
 
   // It would be left out as too large anyway: unpacking it was work for
@@ -2024,6 +2059,24 @@ describe('HTML files', () => {
     const [doc] = (await read(file('<body><h1>Notes</h1><p>Body text</p></body>', 'n.htm'))).documents
     expect(doc.kind).toBe('note')
     expect(lines(doc)).toEqual(['Notes', 'Body text'])
+  })
+})
+
+describe('screenplays', () => {
+  it('reads a .fountain file as a screenplay, a line a paragraph, empty ones kept', async () => {
+    const { documents, skipped } = await read(file('\uFEFFINT. HOUSE - DAY\r\n\r\nMARA\r\nHello.\r\n', 'house.fountain'))
+    expect(skipped).toEqual([])
+    expect(documents).toHaveLength(1)
+    expect(documents[0]).toMatchObject({ kind: 'page', screenplay: true })
+    expect(documents[0].body.content!.map((paragraph) => plainText({ type: 'doc', content: [paragraph] }))).toEqual(['INT. HOUSE - DAY', '', 'MARA', 'Hello.'])
+  })
+
+  it('reads a Final Draft file as one, and says which file isn’t one', async () => {
+    const fdx = '<?xml version="1.0"?><FinalDraft DocumentType="Script"><Content><Paragraph Type="Scene Heading"><Text>INT. HOUSE - DAY</Text></Paragraph></Content></FinalDraft>'
+    const [doc] = (await read(file(fdx, 'house.fdx'))).documents
+    expect(doc).toMatchObject({ kind: 'page', screenplay: true, body: { content: [{ content: [{ text: 'INT. HOUSE - DAY' }] }] } })
+    expect(await read(file('<html></html>', 'other.fdx'))).toEqual({ documents: [], skipped: ['other.fdx: not a Final Draft script'] })
+    expect(await read(file('', 'empty.fountain'))).toEqual({ documents: [], skipped: ['1 empty note'] })
   })
 })
 

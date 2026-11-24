@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -44,6 +44,15 @@ describe('the notices file (scripts/licences)', () => {
   it('stops the build for a package with no licence file to give', () => {
     const dir = project({ 'node_modules/quiet/package.json': '{"name":"quiet","version":"1.0.0","license":"MIT"}', 'node_modules/quiet/index.js': '' })
     expect(() => notices([join(dir, 'node_modules/quiet/index.js')], dir)).toThrow('quiet: no licence file')
+  })
+
+  it('credits every recording the focus sounds ship, by its file, and names each one’s licence', () => {
+    const credits = readFileSync('public/sounds/credits.txt', 'utf8')
+    for (const file of readdirSync('public/sounds').filter((name) => name !== 'credits.txt')) {
+      const credit = credits.split('\n\n').find((entry) => entry.includes(`(sounds/${file})`))
+      expect(credit, file).toBeDefined()
+      expect(credit).toMatch(/public domain|Creative Commons/)
+    }
   })
 
   it('has someone else’s work copied into Nib by the /*! comment it opens with', () => {

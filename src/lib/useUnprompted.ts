@@ -3,6 +3,7 @@ import type { Sync } from '../sync'
 import { keepInCloud } from './cloud'
 import { dailyAsked } from './dailyReminder'
 import { askDue, rememberOffered } from './feedback'
+import { rememberCardOffered } from './yearCard'
 import type { useFirsts } from './firsts'
 import { nativeApp, touchApp } from './platform'
 import { cardCame, caretInText, quiet, twoInARow, watchTyping } from './quiet'
@@ -43,7 +44,7 @@ export function useUnprompted({
   const [packOpen, setPackOpen] = useState<boolean | 'offered'>(false)
   const [coinsOpen, setCoinsOpen] = useState(false)
   // What Nib asks once (lib/feedback).
-  const [asking, setAsking] = useState<'counts' | 'feedback' | 'buddy' | null>(null)
+  const [asking, setAsking] = useState<'counts' | 'card' | 'feedback' | 'buddy' | 'invitations' | null>(null)
   // The daily reminder, offered once, as the first pack is put away.
   const [offeringDaily, setOfferingDaily] = useState(false)
   // Its turn, held for a pause: it would have been the third in a row.
@@ -155,6 +156,7 @@ export function useUnprompted({
         askedThisLaunch.current = true
         if (!due || !clearToAsk()) return
         if (due === 'feedback') void rememberOffered()
+        if (due === 'card') rememberCardOffered(Date.now())
         cardCame()
         setAsking(due)
       })

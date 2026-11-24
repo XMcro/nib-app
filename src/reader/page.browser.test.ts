@@ -272,7 +272,7 @@ describe('a draft to be read once', () => {
     const { root, sent } = await once()
     await until(() => !!button(root, 'Open it now'))
     // Before it's opened, all of what opening it does, what the writer learns included.
-    expect(root.querySelector('form p')?.textContent).toBe('This draft can be read once. When you open it, it’s deleted from Nib’s server, and this link stops working. The writer will see that it has been read.')
+    expect(root.querySelector('form p')?.textContent).toBe('This draft can be read once. When you open it, this link stops working for anyone else, and the draft is deleted from Nib’s server ten minutes later. The writer will see that it has been read.')
     expect(root.querySelector('article')).toBeNull()
     expect(sent.map((one) => `${one.method} ${one.url.replace(/[A-Za-z0-9_-]{22}/, ':slug')}`)).toEqual(['GET /v1/shares/:slug'])
   })
@@ -283,7 +283,7 @@ describe('a draft to be read once', () => {
     await userEvent.click(button(root, 'Open it now'))
     await opening
     expect(root.querySelector('article h1')?.textContent).toBe('The Lighthouse Keeper')
-    expect(root.querySelector('header')?.textContent).toBe('A draft shared from Nib, to be read once. It’s now deleted from Nib’s server: this page is the only copy, until you close it.')
+    expect(root.querySelector('header')?.textContent).toBe('A draft shared from Nib, to be read once. It’s deleted from Nib’s server within ten minutes: this page is your copy, until you close it.')
     expect(sent.map((one) => one.method)).toEqual(['GET', 'POST'])
     expect(sent[1].url).toMatch(/\/reveal$/)
     // With the token from the link's key, which the slug alone can't make (the security review of 2026-11-13).
@@ -324,7 +324,7 @@ describe('a draft to be read once', () => {
     await userEvent.fill(root.querySelector('input[type=password]')!, 'wrong')
     await userEvent.click(button(root, 'Open it now'))
     // Closing the page to go and ask for the password would lose it.
-    await until(() => (root.textContent ?? '').includes('It’s deleted from Nib’s server now: keep this page open until you’ve read it.'))
+    await until(() => (root.textContent ?? '').includes('It’s deleted from Nib’s server within ten minutes: keep this page open until you’ve read it.'))
     await userEvent.fill(root.querySelector('input[type=password]')!, 'wrong')
     await userEvent.click(button(root, 'Open'))
     await until(() => (root.textContent ?? '').includes('That password doesn’t open it.'))

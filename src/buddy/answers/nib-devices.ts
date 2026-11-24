@@ -39,7 +39,7 @@ export const NIB_DEVICES: Answer[] = [
     topic: 'nib',
     q: 'How do I change my sync code?',
     also: ['new sync code', 'someone has my sync code', 'reset the sync code'],
-    a: 'Open Settings → Sync, press Change the sync code, and press it again when it asks Change the code for every device? Or choose Change sync code… in Commands.\n\nEverything moves to a new library under a new code, and the old one is deleted. Your other devices stop syncing until they have it: on each, turn sync off, then enter the new code. Changing it takes Nib Plus, in the app.',
+    a: 'Open Settings → Sync, press Change the sync code, and press it again when it asks Change the code for every device? Or choose Change sync code… in Commands.\n\nEverything moves to a new library under a new code, and the old one is deleted. If you use the inbox, its address stops working, so turn it on again for a new one. Your other devices stop syncing until they have it: on each, turn sync off, then enter the new code. Changing it takes Nib Plus, in the app.',
     see: ['nib-sync-off'],
   },
   {
@@ -99,8 +99,16 @@ export const NIB_DEVICES: Answer[] = [
     topic: 'nib',
     q: 'How do I back up my notes?',
     also: ['make a backup', 'save a copy of everything', 'back up my library'],
-    a: 'Open Settings, press Advanced, then Download a full backup. You get one file of everything: your notes and pages with their pins, trash and history, and each picture as its note has it. Keep it wherever you like. On a Mac, File → Back Up Library… does the same.\n\nFull-quality originals and attached files aren’t in it: they stay on the device, and in its own backups. With Nib Plus, sync keeps an encrypted copy off the device as well.',
-    see: ['nib-restore', 'nib-library-file'],
+    a: 'Open Settings, press Advanced, then Download a full backup. You get one file of everything: your notes and pages with their pins, trash and history, and each picture as its note has it. Keep it wherever you like. On a Mac, File → Back Up Library… does the same.\n\nFull-quality originals and attached files aren’t in it: they stay on the device, and in its own backups. With Nib Plus, sync keeps an encrypted copy off the device as well, and Settings → Backup to a folder makes a backup for you once a day.',
+    see: ['nib-restore', 'nib-backup-folder', 'nib-library-file'],
+  },
+  {
+    id: 'nib-backup-folder',
+    topic: 'nib',
+    q: 'Can Nib back up to iCloud Drive or Dropbox?',
+    also: ['automatic backup every day', 'daily backup to a folder', 'backup to dropbox', 'markdown copies in icloud drive'],
+    a: 'Yes, with Nib Plus, in the app. Open Settings → Backup to a folder and choose a folder, on iCloud Drive, Dropbox, a drive or this device. Nib backs up there straight away, then once a day while it’s open: a Markdown file for each note and page, in folders as Nib has them, and its full backup beside them to restore from.\n\nAll your writing goes, or only the folders you tick. Locked notes go only into the full backup, sealed, and notes kept on this device only never go. Nib doesn’t encrypt these files, so a folder on iCloud Drive or Dropbox is kept by them as it is.\n\nNib changes or removes only the files it wrote there. If the folder already holds another Nib library’s backup, from another device that doesn’t sync with this one, Nib leaves it as it is and Settings asks you to choose another folder.',
+    see: ['nib-backup', 'nib-restore'],
   },
   {
     id: 'nib-restore',
@@ -192,8 +200,8 @@ export const NIB_DEVICES: Answer[] = [
     topic: 'nib',
     q: 'Does my writing ever leave my device?',
     also: ['does Nib collect my data', 'does Nib track me', 'privacy policy'],
-    a: 'Not unless you turn on sync or share a draft, and then it’s encrypted on your device first. Anything else Nib sends, it sends only when you choose to:\n- Feedback you write, with your kind of device and Nib’s version.\n- Usage counts, if you say yes: daily totals of which features get used, never your writing.\n- A code for coins, when you enter one, as a fingerprint of it.\n\nYour stamps and coins go through iCloud to your other devices. Your writing never does. The Privacy Policy is linked at the foot of Settings → Sync.',
-    see: ['nib-sync-safe', 'nib-usage-counts'],
+    a: 'Not unless you turn on sync, share a draft, send it to your blog or back it up to a folder elsewhere. Synced or shared, it’s encrypted on your device first; sent to your blog or a backup folder, it goes straight there, never through Nib’s server. Anything else Nib sends, it sends only when you choose to:\n- Feedback you write, with your kind of device and Nib’s version.\n- Usage counts, if you say yes: daily totals of which features get used, never your writing.\n- A code for coins, when you enter one, as a fingerprint of it.\n\nYour stamps and coins go through iCloud to your other devices. Your writing never does. The Privacy Policy is linked at the foot of Settings → Sync.',
+    see: ['nib-sync-safe', 'nib-blog-private', 'nib-backup-folder', 'nib-usage-counts'],
   },
   {
     id: 'nib-usage-counts',
@@ -224,7 +232,7 @@ export const NIB_DEVICES: Answer[] = [
     topic: 'nib',
     q: 'How do I change the theme?',
     also: ['pick a theme', 'which themes are there', 'gruvbox', 'midnight blue'],
-    a: 'In Settings, under Appearance, choose one of the themes, each shown in its own colours. Midnight Blue, Gruvbox Dark, Green Olive, Clean Blue, Gruvbox Light, Pastel Pink and Cream Soda are free. Purple Green, Alien Pink, drcl and Nib Plus, in the colours of Nib Plus’s own badge, have a small lock: they’re Nib Plus.\n\nIn Commands, type Appearance and a theme’s name. The theme is each device’s own: it doesn’t sync.',
+    a: 'In Settings, under Appearance, choose one of the themes, each shown in its own colours. Midnight Blue, Clean Blue and Cream Soda are free. Gruvbox Dark, Gruvbox Light, Green Olive, Pastel Pink, Purple Green, Alien Pink, drcl, Nib Plus in the colours of Nib Plus’s own badge, and six of Nib’s own, Vellum, Sage and Lilac, light, and Ember, Tide and Merlot, dark, have a small lock: they’re Nib Plus.\n\nIn Commands, type Appearance and a theme’s name. The theme is each device’s own: it doesn’t sync.',
     see: ['nib-own-theme', 'nib-winter'],
   },
   {
@@ -341,7 +349,7 @@ export const NIB_DEVICES: Answer[] = [
     topic: 'nib',
     q: 'How do I change the app icon?',
     also: ['app icon', 'home screen icon', 'different icon'],
-    a: 'On an iPhone or iPad, open Settings → Customize and choose one under App icon: Ink, Paper, Blue, Green or Rose. iOS tells you it’s changed. A choice of icon is part of Nib Plus, and it stays as chosen if Plus ends. The Mac keeps the one icon.',
+    a: 'On an iPhone or iPad, open Settings → Customize and choose one under App icon: Ink, Paper, Blue, Green, Rose, one for each of the six newer themes (Vellum, Sage, Lilac, Ember, Tide and Merlot), Nib Plus in its badge’s colours, or Inkwell. iOS tells you it’s changed. A choice of icon is part of Nib Plus, and it stays as chosen if Plus ends. The Mac keeps the one icon.',
   },
 
   // Nib Plus.
@@ -350,7 +358,7 @@ export const NIB_DEVICES: Answer[] = [
     topic: 'nib',
     q: 'What’s in Nib Plus?',
     also: ['what does plus include', 'premium features', 'is it worth subscribing', 'nib plus features'],
-    a: 'Settings → Nib Plus lists it all. Among it:\n- Your library on your iPhone, iPad and Mac, by encrypted sync, which is a backup off the device too.\n- Export to Word, PDF and HTML, and a folder’s pages compiled into a book.\n- All your version history, not just the last 30 days.\n- Deadlines, sprints and a calendar of your writing.\n- A vault for chosen notes, with its own passcode.\n- Three more themes, a theme of your own, fonts, accents and saved looks.\n- As many folders, categories and templates as you like.',
+    a: 'Settings → Nib Plus lists it all. Among it:\n- Your library on your iPhone, iPad and Mac, by encrypted sync, which is a backup off the device too.\n- A backup once a day to a folder you choose, on iCloud Drive, Dropbox or a drive.\n- Export to Word, PDF and HTML, and a folder’s pages compiled into a book, its chapters on index cards, its characters and places, and a PDF ready to print.\n- Screenplays, set out as you type, exported as an industry PDF, Final Draft, Word or HTML.\n- A note or page sent to your own blog, on WordPress, Ghost or Micro.blog, as a draft.\n- All your version history, not just the last 30 days, each version compared with now.\n- Your writing read aloud, or saved as audio, a whole book at once.\n- Rain, a café, a fire and typewriter keys to write to.\n- Reminders that come again, and every note to self and TK in one list.\n- Where each piece has been sent, with a reminder to follow up.\n- Deadlines, sprints, a calendar of your writing and your year’s stats.\n- Widgets for your goal, streak, a book and a pinned note, and three more Shortcuts actions, on iPhone and iPad.\n- A vault for chosen notes, with its own passcode.\n- Fourteen more themes, a theme of your own, fonts, accents and saved looks.\n- As many folders, categories and templates as you like.',
     see: ['nib-free', 'nib-plus-buy'],
   },
   {
@@ -358,7 +366,7 @@ export const NIB_DEVICES: Answer[] = [
     topic: 'nib',
     q: 'What can I do in Nib without paying?',
     also: ['is Nib free', 'free features', 'without plus'],
-    a: 'A great deal, for good:\n- Notes and pages on your device, with 30 days of version history.\n- Markdown export, free forever.\n- Light, Dark and seven named themes, with text size, width, spacing and motion.\n- Lock Nib, and the daily goal.\n- Three folders, three categories and three templates.\n- Stamps, coins, the market and the Christmas calendar, and Inkwell.',
+    a: 'A great deal, for good:\n- Notes and pages on your device, with 30 days of version history to read and restore.\n- Markdown export, free forever.\n- Light, Dark and three named themes, with text size, width, spacing and motion.\n- Lock Nib, and the daily goal.\n- Three folders, three categories and one template.\n- Reminders, notes to self and TKs.\n- Stamps, coins, the market and the Christmas calendar, and Inkwell.',
     see: ['nib-plus-what'],
   },
   {
@@ -514,7 +522,24 @@ export const NIB_DEVICES: Answer[] = [
     topic: 'nib',
     q: 'Can Nib remind me every day?',
     also: ['daily reminder', 'writing reminder', 'daily notification'],
-    a: 'Yes. In Settings → Goals, turn on Daily reminder and choose the time. It comes on each day your pack is still waiting, on this device only. It’s free, in the app, and Nib offers it once too, as you put away your first pack.',
+    a: 'Yes. In Settings → Goals, turn on Daily reminder and choose the time. It comes on each day your pack is still waiting, on this device only. It’s free, in the app, and Nib offers it once too, as you put away your first pack.\n\nWith Invitations to write on as well, a day’s one notification may be a line about your streak or your book instead, at the same time.',
+    see: ['nib-invitations'],
+  },
+  {
+    id: 'nib-invitations',
+    topic: 'nib',
+    q: 'What are invitations to write?',
+    also: ['why did nib send me a notification', 'nudge to write', 'notification from nib about my streak', 'invitations to write'],
+    a: 'Now and then, a short line to bring you back to the page, about your streak, your book, December’s calendar or today’s pack. Turn them on in Settings → Goals, under Daily reminder. They’re free, in the app on iPhone and iPad.\n\nOne a day at most, the daily reminder included, and none once you’ve written that day. They come at the reminder’s time if it’s on, or a little before the hour you usually write, never before 8:00 or after 21:30. Tap one and Nib opens the book it names.\n\nWith sync on, none counts your days: this device can’t see what you wrote on your others.\n\nNib makes them on this device and sends nothing anywhere. With Lock Nib on, none names a book.',
+    see: ['nib-invitations-stop', 'nib-daily-reminder'],
+  },
+  {
+    id: 'nib-invitations-stop',
+    topic: 'nib',
+    q: 'How do I stop Nib’s notifications?',
+    also: ['turn off notifications', 'too many notifications', 'stop the nudges', 'turn off invitations'],
+    a: 'In Settings → Goals, turn off Invitations to write, and Daily reminder if you’d like that gone too. A note’s own reminder is on the note: open it and take the reminder off.\n\nTo silence Nib altogether, use your iPhone or iPad’s Settings → Notifications → Nib.',
+    see: ['nib-invitations'],
   },
 
   // Feedback, the Mac, and the buddy.

@@ -8,6 +8,10 @@
   "workers_dev": true,
   // No preview addresses for versions not yet deployed: the Worker answers at its own addresses only.
   "preview_urls": false,
+  // What's set in Cloudflare's dashboard stays through a deploy. Without this, a deploy deletes every variable not
+  // named here: SHARES_OFF and SHARES_BLOCKED, set there as plain text to take a shared draft down, were put back
+  // to nothing by the next deploy, and the draft served again (the server audit of 2026-11-23).
+  "keep_vars": true,
   "routes": [
     { "pattern": "share.nibprivacy.com", "custom_domain": true },
     // Where Nib syncs from now on (src/lib/hosts.ts SYNC_ORIGIN); earlier Nibs use workers_dev.
@@ -34,7 +38,8 @@
       { "name": "QUOTA", "class_name": "QuotaObject" },
       { "name": "COINS", "class_name": "CoinsObject" },
       { "name": "COUNTS", "class_name": "CountsObject" },
-      { "name": "FEEDBACK", "class_name": "FeedbackObject" }
+      { "name": "FEEDBACK", "class_name": "FeedbackObject" },
+      { "name": "SWEEPS", "class_name": "SweepsObject" }
     ]
   },
   // Sealed files (worker/files): a picture's original now, attachments later.
@@ -44,13 +49,21 @@
   // Requests for a code's coins, from one network (by a keyed hash of it), a
   // minute: none stands in front of the one object that holds every code otherwise.
   "ratelimits": [{ "name": "COINS_LIMIT", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }],
+  // Once a day, in the small hours (UTC): the file store looked through for files nothing accounts for
+  // (worker/filecheck). What it deletes is written down (worker/sweeps; npm run sweeps).
+  "triggers": { "crons": ["17 3 * * *"] },
+  // "0": the check only looks, and writes down what it would delete. "1": it deletes. Looking first, on a store it
+  // has never been through. Change it here, and deploy, once `npm run sweeps` has shown what it finds there: what
+  // is set here is what a deploy sets, whatever the dashboard says.
+  "vars": { "FILE_CHECK_DELETES": "0" },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["LibraryObject"] },
     { "tag": "v2", "new_sqlite_classes": ["ShareObject", "SubscriberObject"] },
     { "tag": "v3", "new_sqlite_classes": ["QuotaObject"] },
     { "tag": "v4", "new_sqlite_classes": ["CoinsObject"] },
     { "tag": "v5", "new_sqlite_classes": ["CountsObject"] },
-    { "tag": "v6", "new_sqlite_classes": ["FeedbackObject"] }
+    { "tag": "v6", "new_sqlite_classes": ["FeedbackObject"] },
+    { "tag": "v7", "new_sqlite_classes": ["SweepsObject"] }
   ],
   // Logs, but not invocation logs: those keep each request's details, its
   // address among them, which the privacy policy says Nib doesn't store. What

@@ -1,6 +1,7 @@
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { TableMap } from '@tiptap/pm/tables'
+import { shownTitle } from '../lib/links'
 
 /** A page's tables, out to a spreadsheet and in from one. Nib Plus (App's Commands). */
 
@@ -75,11 +76,11 @@ export function toCsv(rows: string[][]): string {
   return `\uFEFF${rows.map((row) => row.map(written).join(',')).join('\r\n')}\r\n`
 }
 
-/** Each cell's words, a line to a paragraph; marks, pictures and footnotes stay behind. A merged cell's words go in its first square, so the columns still line up. */
+/** Each cell's words, a line to a paragraph; marks, pictures and footnotes stay behind. A link to a note is what it's called on the page, which for one locked since is nothing of its title (lib/links). A merged cell's words go in its first square, so the columns still line up. */
 export function rowsOf(table: ProseMirrorNode): string[][] {
   const map = TableMap.get(table)
   const seen = new Set<number>()
-  const words = (cell: ProseMirrorNode) => cell.textBetween(0, cell.content.size, '\n', (leaf) => (leaf.type.name === 'hardBreak' ? '\n' : leaf.type.name === 'noteLink' ? String(leaf.attrs.title ?? '') : ''))
+  const words = (cell: ProseMirrorNode) => cell.textBetween(0, cell.content.size, '\n', (leaf) => (leaf.type.name === 'hardBreak' ? '\n' : leaf.type.name === 'noteLink' ? shownTitle(String(leaf.attrs.id ?? ''), leaf.attrs.title) : ''))
   return Array.from({ length: map.height }, (_, row) =>
     Array.from({ length: map.width }, (_, column) => {
       const at = map.map[row * map.width + column]

@@ -4,7 +4,8 @@ import WidgetKit
 /// Two Home Screen widgets, "New note" and "New page", and "New note" on the
 /// Lock Screen. A small widget is one tap target, so each does one thing.
 /// Each opens Nib by link (nib://new-note, nib://new-page); none shows any
-/// writing.
+/// writing. With Nib Plus, the daily goal and its streak too (GoalWidgets.swift),
+/// and a book's progress and a pinned note (ChosenWidgets.swift).
 
 struct Moment: TimelineEntry {
     let date: Date
@@ -83,5 +84,11 @@ struct NibWidgets: WidgetBundle {
     var body: some Widget {
         NewNoteWidget()
         NewPageWidget()
+        GoalWidget()
+        StreakWidget()
+        if #available(iOS 17, *) {
+            BookWidget()
+            NoteWidget()
+        }
     }
 }

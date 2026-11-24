@@ -24,8 +24,8 @@
         // A named theme (lib/theme NAMED): its own colours, and dark or not
         // as it is. A Plus one shows here, before Nib knows whether Plus is
         // still current; App puts System back if it is not.
-        var named = /^(midnight-blue|gruvbox-dark|green-olive|clean-blue|gruvbox-light|pastel-pink|cream-soda|purple-green|alien-pink|drcl|nib-plus|winter)$/.test(saved)
-        var darkNamed = /^(midnight-blue|gruvbox-dark|green-olive|purple-green|alien-pink|drcl|nib-plus)$/.test(saved)
+        var named = /^(midnight-blue|gruvbox-dark|green-olive|clean-blue|gruvbox-light|pastel-pink|cream-soda|purple-green|alien-pink|drcl|nib-plus|vellum|sage|lilac|ember|tide|merlot|winter)$/.test(saved)
+        var darkNamed = /^(midnight-blue|gruvbox-dark|green-olive|purple-green|alien-pink|drcl|nib-plus|ember|tide|merlot)$/.test(saved)
         if (named) document.documentElement.dataset.theme = saved
         // A theme of one's own: the colours lib/theme worked out last time
         // (OWN_PALETTE_KEY), each checked to be a colour before it is used.

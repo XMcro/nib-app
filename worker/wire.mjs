@@ -109,7 +109,7 @@ export const MAX_INBOX_KEPT = 4096
  * What a device is told of its inbox: whether there is one, what its devices keep with it (`kept`: the key that opens its posts and
  * its address's secret, sealed by a device as its records are, src/sync/inbox), and the posts waiting, oldest first, each sealed
  * (worker/inbox-seal) with when it came.
- * @typedef {{ on: boolean; kept?: string; posts: { id: number; at: number; p: string }[]; more: boolean }} Inbox
+ * @typedef {{ on: boolean; kept?: string; key?: string; check?: string; posts: { id: number; at: number; p: string }[]; more: boolean }} Inbox
  */
 
 /** Why a code gives no coins, and the status the server says it with. 'too many': as many codes as the server takes from one network in a day. */

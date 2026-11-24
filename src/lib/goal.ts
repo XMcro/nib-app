@@ -2,6 +2,8 @@ import { useEffect, useReducer, useState } from 'react'
 import type { Item } from '../db/db'
 import { readJson, writeJson } from './jsonStorage'
 import { localDay, startOfDay } from './time'
+import { KEEP_DAYS, recordFolders, recordHour } from './writingStats'
+import { CALENDAR_KEY } from './yearCard'
 import { recount, wordsToday } from './writtenHere'
 
 /**
@@ -13,9 +15,8 @@ import { recount, wordsToday } from './writtenHere'
 
 const GOAL_KEY = 'nib-goal'
 const STREAK_KEY = 'nib-goal-streak'
-const CALENDAR_KEY = 'nib-goal-calendar'
 
-/** About 26 weeks. */
+/** About 26 weeks: what the calendar shows. It keeps more, KEEP_DAYS (lib/writingStats), for the year's stats. */
 export const CALENDAR_DAYS = 182
 
 /** The last day the goal was met, and how many days in a row that makes. */
@@ -23,11 +24,16 @@ type Streak = { last: string; count: number }
 
 const DAY_MS = 86_400_000
 
+/** The last day the goal was met and the run it made then, as kept: for the widgets (lib/widgets), which say whether it still stands. */
+export const streakRecord = (): Streak => readJson<Streak>(STREAK_KEY, { last: '', count: 0 })
+/** The daily goal as set, 0 for none, for what reads it outside the app's render (lib/invitations). */
+export const readGoal = (): number => readJson<number>(GOAL_KEY, 0)
+
 /** Records today if the goal is met, and returns the current run of days in a row. */
 export function streakAfter(written: number, goal: number, now: number): number {
   const today = localDay(now)
   const yesterday = localDay(startOfDay(now) - 1)
-  let streak = readJson<Streak>(STREAK_KEY, { last: '', count: 0 })
+  let streak = streakRecord()
   if (goal > 0 && written >= goal && streak.last !== today) {
     streak = { last: today, count: streak.last === yesterday ? streak.count + 1 : 1 }
     writeJson(STREAK_KEY, streak)
@@ -37,8 +43,8 @@ export function streakAfter(written: number, goal: number, now: number): number 
 }
 
 /**
- * Keeps today's count in the calendar, and lets go of days older than about
- * 26 weeks. Per device: words written elsewhere arrive already written, and
+ * Keeps today's count in the calendar, and lets go of days older than
+ * KEEP_DAYS, past a year (lib/writingStats). Per device: words written elsewhere arrive already written, and
  * are counted on the device they were written on.
  */
 export function recordDay(written: number, now: number) {
@@ -46,7 +52,7 @@ export function recordDay(written: number, now: number) {
   const calendar = readJson<Record<string, number>>(CALENDAR_KEY, {})
   if (calendar[today] === written || (written === 0 && !(today in calendar))) return
   calendar[today] = written
-  const oldest = localDay(startOfDay(now) - (CALENDAR_DAYS - 1) * DAY_MS)
+  const oldest = localDay(startOfDay(now) - (KEEP_DAYS - 1) * DAY_MS)
   for (const day of Object.keys(calendar)) if (day < oldest) delete calendar[day]
   writeJson(CALENDAR_KEY, calendar)
 }
@@ -84,8 +90,13 @@ export function useDailyGoal(notes: Item[], pages: Item[], enabled: boolean): [D
   // before one was set, or before Plus.
   if (enabled) {
     const now = Date.now()
-    written = wordsToday([...notes, ...pages], now)
+    const documents = [...notes, ...pages]
+    const each = new Map<string, number>()
+    written = wordsToday(documents, now, each)
     recordDay(written, now)
+    // For the stats (lib/writingStats): the hour the words came in, and the books and folders they went into.
+    recordHour(written, now)
+    recordFolders(each, documents, now)
     if (goal > 0) progress = { goal, written, streak: streakAfter(written, goal, now) }
   }
 

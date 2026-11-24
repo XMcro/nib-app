@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { setCountsAnswer } from './counts'
+import { CALENDAR_KEY, rememberCardOffered } from './yearCard'
 import { askDue, countLaunch, FeedbackError, feedbackFits, giftStillOpen, launches, rememberGifted, rememberOffered, sendFeedback } from './feedback'
 
 const held = vi.hoisted(() => ({ keychain: new Map<string, string>(), fails: false }))
@@ -91,7 +92,42 @@ describe('what Nib asks once', () => {
     ;(await import('./buddy')).setBuddy(true)
     for (let i = 0; i < 5; i++) again.countLaunch()
     await again.rememberOffered()
-    expect(await again.askDue()).toBeNull()
+    // Not the buddy: the next turn, invitations to write, at the fifth launch.
+    expect(await again.askDue()).toBe('invitations')
+  })
+
+  it('offers invitations to write once, on their own, a launch after the writing buddy, and not if set in Settings first', async () => {
+    vi.resetModules()
+    const fresh = await import('./feedback')
+    ;(await import('./counts')).setCountsAnswer(true)
+    ;(await import('./buddy')).setBuddy(false)
+    await fresh.rememberOffered()
+    for (let i = 0; i < 4; i++) fresh.countLaunch()
+    expect(await fresh.askDue()).toBeNull()
+    fresh.countLaunch()
+    expect(await fresh.askDue()).toBe('invitations')
+    const invitations = await import('./invitationSwitch')
+    invitations.declineInvitations()
+    expect(await fresh.askDue()).toBeNull()
+    expect(invitations.invitationsOn()).toBe(false)
+    // Turned on in Settings before its turn came: not offered.
+    localStorage.clear()
+    ;(await import('./counts')).setCountsAnswer(true)
+    ;(await import('./buddy')).setBuddy(false)
+    invitations.setInvitationsOn(true)
+    for (let i = 0; i < 6; i++) fresh.countLaunch()
+    expect(await fresh.askDue()).toBeNull()
+  })
+
+  it('offers the year’s card in December, once, after counts and before feedback', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 11, 3, 12) })
+    onTestFinished(() => void vi.useRealTimers())
+    setCountsAnswer(true)
+    launch(3)
+    localStorage.setItem(CALENDAR_KEY, JSON.stringify({ '2026-12-01': 300 }))
+    expect(await askDue()).toBe('card')
+    rememberCardOffered(Date.now())
+    expect(await askDue()).toBe('feedback')
   })
 
   it('does not offer feedback again after Nib is deleted and downloaded again', async () => {

@@ -8,7 +8,7 @@ import { Session } from './session'
 /** When a session looks (sync/session), and when it tells the engine the documents here haven't changed since they were all sent. */
 
 vi.mock('./engine', () => ({ syncOnce: vi.fn(), expireHistory: vi.fn(async () => {}), resetSyncState: vi.fn(), SyncReset: class SyncReset extends Error {} }))
-vi.mock('./files', () => ({ syncFiles: vi.fn(async () => ({ full: false, more: false })), fetchFile: vi.fn() }))
+vi.mock('./files', () => ({ syncFiles: vi.fn(async () => ({ full: false, more: false })), fetchFile: vi.fn(), nameFiles: vi.fn(async () => 0) }))
 vi.mock('../lib/originals', () => ({ fetchOriginalsWith: vi.fn() }))
 
 const sentAll = { changed: [], full: false, tooLarge: 0, copies: 0, moved: new Map(), clean: true }

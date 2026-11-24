@@ -3,9 +3,20 @@ import { isJson, json, MAX_RECEIPT, networksOf, readJson as readCapped, sha256 }
 import type { Claims } from './jws'
 import { paidThrough } from './paid'
 import { EVERYONE, spendEach, type QuotaRequests } from './quota'
-import { FREE_PER_DAY, FREE_PER_DAY_EVERYONE, FREE_PER_DAY_WIDE, NOTES_PER_READER_PER_DAY, NOTES_PER_WIDE_PER_DAY, type ShareRequests } from './share'
+import {
+  FREE_PER_DAY,
+  FREE_PER_DAY_EVERYONE,
+  FREE_PER_DAY_WIDE,
+  NOTES_PER_READER_PER_DAY,
+  NOTES_PER_WIDE_PER_DAY,
+  ONCE_IS_PLUS,
+  OPENS_PER_WIDE_PER_DAY,
+  REVEALS_PER_NETWORK_PER_DAY,
+  REVEALS_PER_WIDE_PER_DAY,
+  type ShareRequests,
+} from './share'
 import type { SubscriberRequests } from './subscriber'
-import { DEFAULT_DAYS, FREE_DAYS, KEY_SHAPE, MAX_DOC_LENGTH, SHARE_DAYS, SLUG_SHAPE } from './wire.mjs'
+import { DEFAULT_DAYS, FREE_DAYS, KEY_SHAPE, MAX_DOC_LENGTH, MAX_NOTE_LENGTH, SHARE_DAYS, SLUG_SHAPE } from './wire.mjs'
 
 /**
  * Share a draft, over HTTP. A plain function over its dependencies, like
@@ -134,6 +145,10 @@ export async function handleShares(request: Request, deps: ShareDeps): Promise<R
       return json(request, 400, { error: 'Expected { slug, jws, days, doc }.' })
     }
     if (free) {
+      // Refused before it's counted, not after: one sure to be refused was counted against all three, the one
+      // everyone shares among them, and given back each time, so a network's few a day never ran out and its
+      // attempts never ended (the server audit of 2026-11-23).
+      if (once) return json(request, 403, { error: ONCE_IS_PLUS })
       const [here, around] = await networksOf(request, deps.secret, 'nib-quota')
       const fromHere = 'Too many free links from this network today. Try again tomorrow, or share with Nib Plus.'
       const spent = await spendEach([
@@ -142,8 +157,15 @@ export async function handleShares(request: Request, deps: ShareDeps): Promise<R
         [deps.quota(EVERYONE), FREE_PER_DAY_EVERYONE, 'Too many free links have been made today. Try again tomorrow, or share with Nib Plus.'],
       ])
       if ('refused' in spent) return reply(spent.refused)
-      const created = await deps.share(slug).create({ slug, ownerHash: owner, subscriber: null, days: days as number, doc, ...(once ? { once } : {}) })
-      if (created.status !== 201) await spent.refund()
+      // Given back only if the share couldn't be made: refused (that slug is taken), the place stays spent.
+      let created: Call
+      try {
+        created = await deps.share(slug).create({ slug, ownerHash: owner, subscriber: null, days: days as number, doc })
+      } catch (error) {
+        await spent.refund()
+        throw error
+      }
+      if (created.status >= 500) await spent.refund()
       return reply(created)
     }
     const paid = await subscription(body?.jws)
@@ -174,16 +196,35 @@ export async function handleShares(request: Request, deps: ShareDeps): Promise<R
     // The token from the link's key, hashed as the app hashed it at creation; none from a reader that's older than tokens.
     const token = (await readJson(REVEAL_BODY))?.token
     const tokenHash = typeof token === 'string' && TOKEN.test(token) ? await sha256(token) : null
-    return reply(await share.reveal(deps.blocked, tokenHash))
+    // One that asks for a token: each try is counted before it's made, per draft and per network, and a right one
+    // given back. A draft there to be read once first, so a slug that isn't one is counted against nobody and stores nothing.
+    const guarded = await share.guarded(deps.blocked)
+    if (guarded.status !== 200) return reply(guarded)
+    if (!(guarded.body as { guarded: boolean }).guarded) return reply(await share.reveal(deps.blocked, tokenHash))
+    const [here, around] = await networksOf(request, deps.secret, 'nib-quota', (network) => `${slug} reveal ${network}`)
+    const tried = 'Too many tries at this draft from this network today. Try again tomorrow.'
+    const spent = await spendEach([
+      [deps.quota(here), REVEALS_PER_NETWORK_PER_DAY, tried],
+      [deps.quota(around), REVEALS_PER_WIDE_PER_DAY, tried],
+    ])
+    if ('refused' in spent) return reply(spent.refused)
+    const revealed = await share.reveal(deps.blocked, tokenHash)
+    if (revealed.status === 200) await spent.refund()
+    return reply(revealed)
   }
   // With its owner's token, it's the app checking its key (src/share `opensDraft`), and isn't counted as an opening.
   if (!notes && method === 'GET') {
     if (deps.off) return unavailable()
     const read = await share.read(deps.blocked)
     // With Nib Plus, counted once a day for each network a reader asks from, so asking again and again counts once and writes nothing more (the security review of 2026-11-13). The owner's own asking is spent too, but never counted.
-    if (read.status === 200 && (read.body as { counted?: boolean }).counted) {
-      const [here] = await networksOf(request, deps.secret, 'nib-quota', (network) => `${slug} opened ${network}`)
-      if ((await deps.quota(here).spend(1, 'Counted already today.')).status === 200) await share.countOpen(owner)
+    // And a few times a day for the wider network around it, which holds 65,536 of those; never for another site's
+    // page that has its visitors' browsers ask (a browser says where from; the reader page's own asking is same-origin).
+    const from = request.headers.get('Sec-Fetch-Site')
+    if (read.status === 200 && (read.body as { counted?: boolean }).counted && (from === null || from === 'same-origin')) {
+      const [here, around] = await networksOf(request, deps.secret, 'nib-quota', (network) => `${slug} opened ${network}`)
+      const counted = 'Counted already today.'
+      // This network's first, and kept if the wider one's are used up: asked again, it writes nothing more.
+      if ((await deps.quota(here).spend(1, counted)).status === 200 && (await deps.quota(around).spend(OPENS_PER_WIDE_PER_DAY, counted)).status === 200) await share.countOpen(owner)
     }
     return reply(read)
   }
@@ -195,6 +236,8 @@ export async function handleShares(request: Request, deps: ShareDeps): Promise<R
     if (taking.status !== 200) return reply(taking)
     const note = (await readJson(NOTE_BODY))?.note
     if (typeof note !== 'string' || !/^[A-Za-z0-9_-]+$/.test(note)) return json(request, 400, { error: 'Expected { note }.' })
+    // Before it's counted against anyone, not after (worker/share `addNote`): refused there, it was counted and given back each time.
+    if (note.length > MAX_NOTE_LENGTH) return json(request, 400, { error: 'That note is too long.' })
     // Counted per draft and per network, as free shares are, and never by the address itself, nor a plain hash of it.
     const [here, around] = await networksOf(request, deps.secret, 'nib-quota', (network) => `${slug} ${network}`)
     const allLeft = 'You’ve left all the notes you can on this draft today. Try again tomorrow.'

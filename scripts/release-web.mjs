@@ -4,15 +4,31 @@
  * shared drafts, the reader page and the app's privacy page), then
  * nibprivacy.com, then a check that each address is serving this release.
  *
- *   npm run release:web            deploy both, then check
- *   npm run release:web -- --check check only
+ *   npm run release:web -- --release   deploy both, then check
+ *   npm run release:web -- --check     check only
+ *
+ * One or the other has to be said, after the --: an option typed before it npm keeps for itself, and this was run
+ * as if none had been given, which was the whole release (--chek, for one).
  *
  * Wrangler must be logged in to the Cloudflare account that has both Workers.
  */
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { keptByNpm, refuseInTests, refuseSecrets, ROOT } from './public-files.mjs'
+
+// Before anything else. npm run release:web --check, with no -- before it, is kept by npm: taken as meant.
+const said = process.argv.slice(2)
+const checkOnly = (said.length === 1 && said[0] === '--check') || (said.length === 0 && process.env.npm_config_check !== undefined)
+// Nor a release with a --check or a dry run of any spelling kept by npm before it: one or the other was meant.
+if (!checkOnly && (said.length !== 1 || said[0] !== '--release' || keptByNpm().length)) {
+  console.error(`Nothing was deployed. It's npm run release:web -- --release, or npm run release:web -- --check, with the -- before it.${said.length ? ` Not understood: ${said.join(' ')}.` : ''}`)
+  process.exit(1)
+}
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+// From the project, wherever it was run from.
+process.chdir(ROOT)
+if (!checkOnly) refuseInTests()
 
 const run = (command, args) => {
   const result = spawnSync(command, args, { stdio: 'inherit' })
@@ -37,10 +53,16 @@ const CHECKS = [
   ['https://nibprivacy.com/privacy/', 'one address, or one network'],
 ]
 
-if (!process.argv.includes('--check')) {
-  run('npm', ['run', 'deploy'])
+if (!checkOnly) {
+  // The website built first, before anything is deployed: it failing (a release with no day in updates.txt, say)
+  // after the Worker had gone left the app's copy of the policy and the website's saying different things.
   run('python3', ['website/build_site.py'])
-  run('npx', ['wrangler', 'deploy', '--config', 'website/wrangler.jsonc'])
+  // Looked over as it's about to go, not as it was before it was built again.
+  refuseSecrets(['website/site'])
+  run('npm', ['run', 'deploy', '--', '--go'])
+  // The same commit, said to Cloudflare with the website's version as it is with the Worker's (scripts/deploy).
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
+  run('npx', ['wrangler', 'deploy', '--config', 'website/wrangler.jsonc', '--message', commit, '--tag', commit.slice(0, 12)])
 }
 
 const serving = async ([url, marker]) => {

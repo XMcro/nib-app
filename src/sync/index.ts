@@ -171,17 +171,29 @@ export function useSync(plus: Entitlement, onApplied: (ids: string[], copies: nu
     [plus],
   )
 
-  const turnOff = useCallback(async () => {
-    await codeStore.clear()
-    await resetSyncState()
+  /**
+   * Sync off on this device, after `first` if there's something to do first. With no pass under way, and none
+   * after: one in the middle found its state gone and began again (SyncReset), with the code it still held.
+   */
+  const off = useCallback(async (first?: () => Promise<unknown>) => {
+    const running = session.current
+    const work = async () => {
+      await first?.()
+      await codeStore.clear()
+      await resetSyncState()
+      running?.stop()
+    }
+    await (running ? running.hold(work) : work())
     setCode(null)
   }, [])
 
+  const turnOff = useCallback(() => off(), [off])
+
   const wipe = useCallback(async () => {
     if (!code) return
-    await httpApi(SERVER, await deriveKeys(code)).wipe()
-    await turnOff()
-  }, [code, turnOff])
+    const keys = await deriveKeys(code)
+    await off(() => httpApi(SERVER, keys).wipe())
+  }, [code, off])
 
   const changeCode = useCallback(async () => {
     const running = session.current
@@ -189,7 +201,7 @@ export function useSync(plus: Entitlement, onApplied: (ids: string[], copies: nu
     if (!code || !running) throw new Error('Sync isn’t running on this device yet.')
     const jws = plus.jws
     const fresh = await running.hold(async () => {
-      const next = await changeLibrary(code, jws)
+      const next = await changeLibrary(code, jws, folder.current())
       // Its code is no longer kept: it mustn't take up again after the hold.
       running.stop()
       return next

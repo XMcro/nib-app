@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import type { Category, Item } from '../db/db'
 import * as items from '../db/items'
+import { setWhichFolders, whichFolders } from './backupChoice'
+import { rebook } from './submissions'
 import { FOLDER_ICONS } from './folderIcons'
 import { readFolderSettings, renameSettings, settingOf, type FolderSettings } from './folderSettings'
 import { ACCENTS, type Accent } from './look'
@@ -394,6 +396,12 @@ async function refileFolder(from: string, to: string | null) {
   // The one removed is no longer made here: only its documents go to the folder it was in, which isn't made by that.
   writeMade({ ...made, folders: made.folders.flatMap((name) => (sameName(name, from) ? (to ?? []) : moved(name, from, to)!)) })
   carrySettings(from, to)
+  // The folders chosen for the backup folder (lib/backupFolder) are chosen by name: the name goes with the folder,
+  // or the next backup would find nothing under the old one and take that book's files away.
+  // A book's submissions (lib/submissions) are of it by its folder's name too.
+  rebook((folder) => moved(folder, from, to))
+  const chosen = whichFolders()
+  if (chosen) setWhichFolders(chosen.flatMap((name) => (sameName(name, from) ? (to ?? []) : moved(name, from, to)!)))
   await items.refile(
     (item) => (item.folder ? under(item.folder, from) : false),
     (item) => {

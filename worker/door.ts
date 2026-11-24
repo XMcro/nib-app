@@ -4,13 +4,15 @@ import { NOTIFICATIONS_PATH } from './notifications'
 import { PAGE, READER_HEADERS, READER_PAGE } from './shares'
 
 type Route = (request: Request) => Promise<Response>
-export type Routes = Record<'assets' | 'notifications' | 'shares' | 'coins' | 'counts' | 'feedback' | 'inbox' | 'sync', Route>
+export type Routes = Record<'assets' | 'notifications' | 'shares' | 'coins' | 'counts' | 'feedback' | 'inbox' | 'alarms' | 'sweeps' | 'sync', Route>
 
 /** Whose a path under /v1/ is. Anything else is the sync API's, which says it wants a library's credentials. */
 function routeOf(path: string, routes: Routes): Route {
   if (path === '/v1/shares' || path.startsWith('/v1/shares/')) return routes.shares
   if (path.startsWith('/v1/coins/')) return routes.coins
   if (path === '/v1/counts') return routes.counts
+  if (path === '/v1/alarms') return routes.alarms
+  if (path === '/v1/sweeps') return routes.sweeps
   if (path === '/v1/feedback' || path.startsWith('/v1/feedback/')) return routes.feedback
   // A post from a service, to an inbox's address (worker/inbox). A device's side of its inbox, /v1/inbox, is the sync API's.
   if (path.startsWith('/v1/in/')) return routes.inbox

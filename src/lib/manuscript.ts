@@ -1,6 +1,7 @@
 import type { Item } from '../db/db'
 import { settingOf, type FolderSettings } from './folderSettings'
 import { filingOf, sameName, split } from './folders'
+import { oneLine } from './text'
 
 /**
  * A manuscript: a folder's pages, in the order the writer puts them, as
@@ -20,6 +21,29 @@ export function asPosition(raw: unknown): number | null | undefined {
 }
 
 const placed = (item: Item): item is Item & { position: number } => typeof item.position === 'number'
+
+/** The one check on a summary arriving from outside: text, made one line, or `null` for taken off. Anything else says nothing. */
+export function asSummary(raw: unknown): string | null | undefined {
+  return raw === null ? null : typeof raw === 'string' ? oneLine(raw) : undefined
+}
+
+/** How far along a chapter is, on the corkboard, in that order. */
+export const STATUSES = ['draft', 'revised', 'done'] as const
+export type Status = (typeof STATUSES)[number]
+
+/** The one check on a status arriving from outside: `null` for taken off, back to a draft. Anything else says nothing. */
+export function asStatus(raw: unknown): 'revised' | 'done' | null | undefined {
+  return raw === null || raw === 'revised' || raw === 'done' ? raw : undefined
+}
+
+export const statusOf = (item: Item): Status => item.status ?? 'draft'
+
+/** How many of `chapters` are at each status: the book's progress. */
+export function progressOf(chapters: Item[]): Record<Status, number> {
+  const counts: Record<Status, number> = { draft: 0, revised: 0, done: 0 }
+  for (const item of chapters) counts[statusOf(item)] += 1
+  return counts
+}
 
 /**
  * The folder's pages in book order: those with a place by it, then those
@@ -160,7 +184,7 @@ export function runningHead({ title, author }: Standard): string {
 }
 
 /** A line that's only marks, as a writer puts between scenes: ***, * * *, #, ⁂ or ~~~. */
-const SCENE_BREAK = /^(?=.*\S)[\s#*~⁂]+$/u
+export const SCENE_BREAK = /^(?=.*\S)[\s#*~⁂]+$/u
 
 /** A chapter with each break between scenes as standard manuscript format has it: a # on its own line, in the middle. */
 export function withSceneBreaks(body: Item['body']): Item['body'] {

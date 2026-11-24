@@ -8,8 +8,8 @@
  * before it ended, stay, and stay usable; it's only saving another that waits
  * for Plus, as with folders.
  */
-export const FREE_TEMPLATES = 3
+export const FREE_TEMPLATES = 1
 
-export const TEMPLATES_PLUS = `${FREE_TEMPLATES} templates is the most without Nib Plus. With it, keep as many as you like.`
+export const TEMPLATES_PLUS = 'One template is the most without Nib Plus. With it, keep as many as you like.'
 
 export const canSaveTemplate = (templates: number, plus: boolean) => plus || templates < FREE_TEMPLATES

@@ -15,3 +15,21 @@ describe('a signed request', () => {
     expect(await verifySignature('not a key', signature, message)).toBe(false)
   })
 })
+
+describe('a signature', () => {
+  // Sixteen spellings decode to the same 64 bytes: the last character's low four bits are dropped. Only the one a device writes is one.
+  it('is taken in the one spelling of its bytes, and in no other', async () => {
+    const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair
+    const publicKey = base64url(await crypto.subtle.exportKey('raw', pair.publicKey))
+    const message = signedMessage({ id: '0'.repeat(32), method: 'POST', path: '/v1/signed-only', time: 1, bodyHash: 'ab' })
+    const signature = base64url(await crypto.subtle.sign({ name: 'Ed25519' }, pair.privateKey, new TextEncoder().encode(message)))
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+    const last = ALPHABET.indexOf(signature.at(-1)!)
+    const passing = []
+    for (let low = 0; low < 16; low++) {
+      const spelt = signature.slice(0, -1) + ALPHABET[(last & 0b110000) | low]
+      if (await verifySignature(publicKey, spelt, message)) passing.push(spelt)
+    }
+    expect(passing).toEqual([signature])
+  })
+})

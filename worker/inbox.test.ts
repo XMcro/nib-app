@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { base64url } from './base64'
 import { frontDoor, type Routes } from './door'
 import { emptyFiles } from './files'
+import { sha256 } from './http'
 import { handlePost } from './inbox'
 import { clipperCode, inboxKey, newInboxKeys, openPost, readClipperCode, sealedShape, sealPost } from './inbox-seal'
 import { KEPT_MONTHS, Library, libraryRequests, retireLibrary, type LibraryEffects, type Region } from './library'
 import { GRACE_MS } from './paid'
-import { signedMessage } from './signing'
+import { inboxCheck, signedMessage } from './signing'
 import { Subscriber, subscriberRequests } from './subscriber'
 import { handleSync, type Deps } from './sync'
 import { memoryFiles, sqlite } from './testing'
@@ -35,7 +36,7 @@ function server({ expiresIn = 30 * DAY } = {}) {
     const known = libraries.get(home) ?? libraries.set(home, (() => {
       const sql = sqlite()
       const kept = { library: new Library(sql), sql, alarm: null as number | null, effects: undefined as unknown as LibraryEffects }
-      kept.effects = { alarm: async (at) => void (kept.alarm = at), deleteAll: async () => {}, home, deleteFiles: () => emptyFiles(files, home) }
+      kept.effects = { alarm: async (at) => void (kept.alarm = at), home, deleteFiles: () => emptyFiles(files, home) }
       return kept
     })()).get(home)!
     return libraryRequests(known.library, () => clock.now, known.effects)
@@ -73,7 +74,13 @@ describe('a library’s inbox', () => {
   it('takes a post from whoever holds the address, and keeps it sealed for a device to open', async () => {
     const call = server()
     const keys = await call.inbox()
-    expect(await call.waiting()).toEqual({ on: true, kept: KEPT, posts: [], more: false })
+    // With the key it seals with and a check of its address, for a device to see they're its own. Not the hash of
+    // the address's secret: setting an inbox asks for that, so told here it let whoever had caught a request change
+    // the key and keep the writer's address. The check is a hash of that hash, which sets nothing.
+    const waiting = await call.waiting()
+    expect(waiting).toEqual({ on: true, kept: KEPT, key: keys.publicKey, check: await inboxCheck(await sha256(SECRET)), posts: [], more: false })
+    expect(JSON.stringify(waiting)).not.toContain(await sha256(SECRET))
+    expect(waiting.check).toMatch(/^[0-9a-f]{64}$/)
 
     const sent = await call.post(JSON.stringify({ title: 'Tide times', text: 'High water at **06:12**.', url: 'https://example.com/tides' }))
     expect(sent.status).toBe(200)
@@ -433,7 +440,7 @@ describe('a library’s inbox', () => {
     await call.inbox()
     await call.post('{"text":"waiting"}')
     expect((await call('/v1/library', { method: 'DELETE' })).status).toBe(200)
-    expect(call.kept().sql.all('SELECT * FROM inbox')).toEqual([])
+    expect(call.kept().sql.all("SELECT name FROM sqlite_master WHERE name = 'inbox'")).toEqual([])
     expect(await said(await call.post('{"text":"after"}'))).toEqual([404, 'No inbox at that address.'])
   })
 

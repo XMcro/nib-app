@@ -13,7 +13,7 @@ vi.mock('@capacitor/core', async (importOriginal) => ({
 vi.mock('./platform', async (importOriginal) => ({ ...(await importOriginal<typeof import('./platform')>()), nativeApp: true }))
 
 const { useReminders } = await import('./reminders')
-const { asReminder, describeReminder, forget, keepReminders, nextAt, remind, ReminderError, reminderOf, reminderPlan, refreshReminders, repeatWord, setReminder, silentHere, snoozedFor, suggestedTimes, toLocalInput, unkept, useKeptReminders } = await import('./reminders')
+const { asReminder, describeReminder, followedUp, followUpsOf, forget, keepReminders, nextAt, remind, ReminderError, reminderOf, reminderPlan, refreshReminders, repeatWord, setReminder, silentHere, snoozedFor, suggestedTimes, toLocalInput, unkept, useKeptReminders } = await import('./reminders')
 const { db } = await import('../db/db')
 const items = await import('../db/items')
 
@@ -482,3 +482,53 @@ describe('looking at what this device will ring, with nothing changed', () => {
     expect(native.list.mock.calls.length).toBeGreaterThan(asked)
   })
 })
+
+describe('a submission’s follow-up', () => {
+  const sent = (piece: object, fields: object = {}) => ({ at: 1, piece, where: 'Granta', followUp: '2026-10-20', ...fields }) as never
+  const library = [note('p'), note('q', LOCKED), note('ch', { kind: 'page', folder: 'The Lighthouse/Part One' })]
+
+  it('rings on its day at nine while it’s still waiting, saying where it went and what, and for nothing gone or answered', () => {
+    const { ring, pending } = followUpsOf(
+      {
+        a: sent({ document: 'p' }),
+        b: sent({ document: 'q' }, { answer: 'more', where: undefined }),
+        c: sent({ book: 'The Lighthouse' }, { answer: 'shortlisted' }),
+        d: sent({ document: 'p' }, { answer: 'declined' }),
+        e: sent({ document: 'gone' }),
+        f: sent({ document: 'p' }, { followUp: '2026-10-07' }),
+        g: sent({ document: 'p' }, { followUp: undefined }),
+        h: { at: 2, gone: true },
+        // A book with no page left in its folder: renamed away from, removed, or all in the trash.
+        i: sent({ book: 'Old Title' }),
+      },
+      library,
+      NOW,
+    )
+    expect(ring).toEqual([
+      { id: 'follow-a', at: at(20, 9), title: 'Follow up with Granta about Note p' },
+      // A locked note's title is never said; an answer this Nib doesn't know is still waiting.
+      { id: 'follow-b', at: at(20, 9), title: 'Follow up about A locked note' },
+      { id: 'follow-c', at: at(20, 9), title: 'Follow up with Granta about The Lighthouse' },
+    ])
+    // Yesterday's has rung already, and one for a piece not here rings for nothing: each still kept, if snoozed.
+    expect(pending.sort()).toEqual(['follow-a', 'follow-b', 'follow-c', 'follow-e', 'follow-f', 'follow-i'])
+  })
+
+  it('is in the device’s plan beside the notes’ own: kept while it’s due, its snooze kept while it’s waiting, cancelled once answered', () => {
+    const followUps = followUpsOf({ a: sent({ document: 'p' }) }, library, NOW)
+    const waiting = [{ id: 'follow-a', at: at(20, 9), title: 'Follow up with Granta about Note p' }, { id: 'follow-a', at: at(9, 9), snoozed: true }]
+    expect(reminderPlan(library, waiting, NOW, followUps)).toEqual({ ring: [], cancel: [] })
+    const answered = followUpsOf({ a: sent({ document: 'p' }, { answer: 'accepted' }) }, library, NOW)
+    expect(reminderPlan(library, waiting, NOW, answered)).toEqual({ ring: [], cancel: ['follow-a'] })
+  })
+
+  it('when tapped, is for its piece, or says its submission is gone', () => {
+    const submissions = { a: sent({ document: 'p' }), c: sent({ book: 'The Lighthouse' }), h: { at: 2, gone: true } } as never
+    expect(followedUp('follow-a', submissions)).toEqual({ document: 'p' })
+    expect(followedUp('follow-c', submissions)).toEqual({ book: 'The Lighthouse' })
+    expect(followedUp('follow-h', submissions)).toBe('gone')
+    expect(followedUp('follow-never', submissions)).toBe('gone')
+    expect(followedUp('p', submissions)).toBeNull()
+  })
+})
+

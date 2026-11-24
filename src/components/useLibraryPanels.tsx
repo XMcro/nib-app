@@ -6,9 +6,12 @@ import { notesAndTks, showNote } from '../editor/NoteToSelf'
 import { useCounted } from '../lib/counts'
 import type { BookFormat } from '../lib/documentExport'
 import { moved, under } from '../lib/folders'
-import { partsOf, type Part } from '../lib/manuscript'
+import { bookOf, partsOf, type Part } from '../lib/manuscript'
+import { readFolderSettings } from '../lib/folderSettings'
+import { submissionsOf, SUBMISSIONS_PLUS, useSubmissions, type Piece } from '../lib/submissions'
+import type { Trim } from '../lib/printBook'
 import { gathered } from '../lib/placed'
-import { isLocked } from '../lib/vault'
+import { isLocked, shownTitle, vaultOpen } from '../lib/vault'
 import { nativeApp } from '../lib/platform'
 import { useHistory } from '../lib/useHistory'
 import { AttachmentsPanel } from './AttachmentsPanel'
@@ -21,6 +24,7 @@ import { ManuscriptPanel } from './ManuscriptPanel'
 import type { FindSeed } from '../editor/FindBar'
 import { NotesPanel } from './NotesPanel'
 import { NotesToSelfPanel } from './NotesToSelfPanel'
+import { SubmissionsPanel } from './SubmissionsPanel'
 import { FoldersPanel } from './Places'
 import { TrashList } from './TrashList'
 
@@ -30,7 +34,7 @@ import { TrashList } from './TrashList'
  * on the document, then folders, then History, then attachments, then the trash. Each flag
  * stays as it was under another, and shows when that one closes.
  */
-export function useLibraryPanels({ session, view, activeItem, documents, pages, trash, editorRef, setNotice, hideListOverText, showInLibrary, open, openAt, compile, askPlus, onLimit, unlimited, features, keepsAll }: {
+export function useLibraryPanels({ session, view, activeItem, documents, pages, trash, editorRef, setNotice, hideListOverText, showInLibrary, open, openAt, compile, listen, askPlus, onLimit, unlimited, features, keepsAll }: {
   session: OpenDocument
   view: Pick<ReturnType<typeof useLibraryView>, 'viewingTrash' | 'setViewingTrash' | 'place' | 'setPlace' | 'library'>
   activeItem: Item | undefined
@@ -49,7 +53,9 @@ export function useLibraryPanels({ session, view, activeItem, documents, pages, 
   /** A chapter opened at a match of its book's find, its find bar open on it. */
   openAt: (id: string, seed: FindSeed) => void
   /** A manuscript as one Word, PDF or EPUB file (Nib Plus). */
-  compile: (folder: string, parts: Part[], format: BookFormat, standard?: boolean) => Promise<unknown>
+  compile: (folder: string, parts: Part[], format: BookFormat, standard?: boolean, print?: { trim: Trim; dropCaps: boolean }) => Promise<unknown>
+  /** The book as audio (fileActions listenToManuscript). */
+  listen: (folder: string, parts: Part[]) => Promise<unknown>
   askPlus: (reason: string) => void
   onLimit: (kind: 'folder' | 'category' | 'look') => void
   /** Nib Plus: no limit on folders and categories. */
@@ -66,6 +72,23 @@ export function useLibraryPanels({ session, view, activeItem, documents, pages, 
   const [viewingNotes, setViewingNotes] = useState<false | 'readers' | 'self'>(false)
   const [managing, setManaging] = useState(false)
   const [viewingAttachments, setViewingAttachments] = useState(false)
+  // The submission tracker (lib/submissions): one piece's, or all of them.
+  const [viewingSubmissions, setViewingSubmissions] = useState<Piece | 'all' | null>(null)
+  const submissions = useSubmissions()
+
+  /** A piece as the library says it: a document's title, a locked one's as the vault lets it be said, a book's own. */
+  function pieceTitle(piece: Piece): string {
+    if ('book' in piece) return bookOf(piece.book, readFolderSettings()).title
+    const item = [...documents, ...trash].find((one) => one.id === piece.document)
+    return item ? shownTitle(item) : 'A deleted note'
+  }
+
+  /** A submission's piece: a document opened, or a book's folder shown in Pages, its Manuscript a tap away. */
+  function openPiece(piece: Piece) {
+    setViewingSubmissions(null)
+    if ('document' in piece) open(piece.document)
+    else setPlace({ folder: piece.book })
+  }
   useCounted(viewingNotes === 'self', 'notes_to_self_opened')
   const history = useHistory({ viewing: viewingHistory, close: () => setViewingHistory(false), session, setNotice })
 
@@ -88,7 +111,8 @@ export function useLibraryPanels({ session, view, activeItem, documents, pages, 
   }
 
   const panel =
-    viewingNotes === 'self' && activeItem && editorRef.current ? (
+    // Not a locked document's once the vault is shut: the editor that held its text is still there for one more drawing.
+    viewingNotes === 'self' && activeItem && editorRef.current && !(isLocked(activeItem) && !vaultOpen()) ? (
       <NotesToSelfPanel doc={editorRef.current.state.doc} onBack={() => setViewingNotes(false)} onShow={showNoteOrTk} />
     ) : viewingNotes === 'readers' && activeItem && liveShare(activeItem) ? (
       <NotesPanel
@@ -126,9 +150,12 @@ export function useLibraryPanels({ session, view, activeItem, documents, pages, 
             onBringBack={(revision, basis, body) => void history.bringBack(revision, basis, body)}
             readOnly={activeItem?.readOnly === true}
             onPlus={askPlus}
+            compares={features}
           />
         )}
       </>
+    ) : viewingSubmissions ? (
+      <SubmissionsPanel piece={viewingSubmissions === 'all' ? undefined : viewingSubmissions} titleOf={pieceTitle} onBack={() => setViewingSubmissions(null)} onOpen={openPiece} onPlus={features ? undefined : () => askPlus(SUBMISSIONS_PLUS)} />
     ) : viewingAttachments ? (
       <AttachmentsPanel items={documents} trash={trash} onBack={() => setViewingAttachments(false)} onOpen={open} />
     ) : viewingTrash ? (
@@ -160,14 +187,22 @@ export function useLibraryPanels({ session, view, activeItem, documents, pages, 
             onBack={onBack}
             onOpen={open}
             onMove={(places) => void guarded(() => items.setPositions(places))}
+            onSummary={(id, summary) => void guarded(() => items.setSummary(id, summary))}
+            onStatus={(id, status) => void guarded(() => items.setStatus(id, status))}
             // Offered as the palette offers Word and PDF: with Plus, or in the app, where Plus can be had.
             onCompile={features || nativeApp ? (format, standard) => compile(folder, parts, format, standard) : undefined}
+            // Only in the app: the system prints it.
+            onPrint={nativeApp ? (trim, dropCaps) => compile(folder, parts, 'pdf', false, { trim, dropCaps }) : undefined}
+            // Only in the app: the system's voice makes it.
+            onListen={nativeApp ? () => listen(folder, parts) : undefined}
             stamps={gathered(chapters)}
             plus={features}
             // As a document's goal is: with Plus, or in the app, where Plus can be had.
             onPlus={features || nativeApp ? askPlus : undefined}
             onOpenAt={features || nativeApp ? openAt : undefined}
             onRewrite={features || nativeApp ? session.rewrite : undefined}
+            // With Plus, or where Plus can be had. Those the book already has stay to open without it.
+            onSubmissions={features || submissionsOf(submissions, { book: folder }).length > 0 ? () => setViewingSubmissions({ book: folder }) : nativeApp ? () => askPlus(SUBMISSIONS_PLUS) : undefined}
           />
         )
       : null
@@ -183,5 +218,7 @@ export function useLibraryPanels({ session, view, activeItem, documents, pages, 
     openNotesToSelf: () => showInLibrary(() => setViewingNotes('self')),
     openTrash: () => showInLibrary(() => setViewingTrash(true)),
     openAttachments: () => showInLibrary(() => setViewingAttachments(true)),
+    /** One piece's submissions, or all of them. */
+    openSubmissions: (piece?: Piece) => showInLibrary(() => setViewingSubmissions(piece ?? 'all')),
   }
 }

@@ -1,7 +1,10 @@
 # The static files here (the landing page, the privacy policy, the reader's script) are served without the Worker
 # running, so what it adds to its own answers (worker/door.ts ON_EVERY_ANSWER) never reaches them: said here, the
 # same four. On nibprivacy.com's hosts the zone sends them as well; on the workers.dev address nothing else does.
+# And a policy for the three pages, which are their words, a style of their own and the icon: no script, nothing
+# from anywhere else. The reader's page (/d/...) is the Worker's, with a policy of its own (worker/shares READER_HEADERS).
 /*
+  Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   X-Frame-Options: DENY

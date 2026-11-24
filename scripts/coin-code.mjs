@@ -27,16 +27,32 @@ function fail(message) {
   process.exit(1)
 }
 
-/** --name value pairs, and what's left. */
-function options(args) {
+/**
+ * --name value pairs, of the `known` names, and what's left. Anything else that begins -- is a mistake to say,
+ * not to pass over: --use 5, or --uses=5, made a code for any number of uses, and --code with nothing after it a random one.
+ * One given twice is too: the last was taken, so --uses 5 --uses none made a code with no limit.
+ */
+function options(args, known) {
   const found = {}
   const left = []
   for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith('--')) found[args[i].slice(2)] = args[++i]
-    else left.push(args[i])
+    if (!args[i].startsWith('--')) {
+      left.push(args[i])
+      continue
+    }
+    const name = args[i].slice(2)
+    if (!known.includes(name)) fail(`Not understood: ${args[i]}. The options are ${known.map((one) => `--${one}`).join(', ')}, each with its value after a space, as --uses 5.`)
+    if (i + 1 >= args.length || args[i + 1].startsWith('--')) fail(`${args[i]} needs a value after it.`)
+    if (name in found) fail(`${args[i]} is given twice.`)
+    found[name] = args[++i]
   }
   return { found, left }
 }
+
+// npm run coin-code make 100 --uses 5, without the -- before it: npm keeps the options for itself, says nothing,
+// and this was run with none, and made a code for any number of uses.
+const kept = ['uses', 'until', 'code'].filter((name) => process.env[`npm_config_${name}`] !== undefined)
+if (kept.length) fail(`npm took ${kept.map((name) => `--${name}`).join(' and ')} for itself. Put -- before the command: npm run coin-code -- make 100 --uses 5.`)
 
 // As src/lib/codes.ts's fingerprintOf has it.
 const fingerprintOf = (code) => createHash('sha256').update(fingerprintInput(code)).digest('hex')
@@ -71,7 +87,7 @@ if (command === 'secret') {
   console.log('  npx wrangler secret put COINS_ADMIN')
   console.log(made)
 } else if (command === 'make') {
-  const { found, left } = options(rest)
+  const { found, left } = options(rest, ['uses', 'until', 'code'])
   // Anything else given is a mistake to say, not to pass over: a code given without --code was, and a random one made in its place.
   if (left.length > 1) fail(`Not understood: ${left.slice(1).join(' ')}. A code of your own goes after --code, as --code ${left[1]}.`)
   // 999,999 as well as 999999.

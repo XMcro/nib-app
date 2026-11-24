@@ -494,8 +494,8 @@ export const UNSTUCK_HABITS: Answer[] = [
     topic: 'unstuck',
     q: 'Should I listen to music while I write?',
     also: ['music or silence', 'writing playlist', 'background noise for writing'],
-    a: 'Some people need silence; others work best with sound. Songs with words tend to tug at the language part of you, so many writers choose instrumental music, rain sounds or café noise while drafting.\n\nA playlist kept for one project can become a cue: the same songs each session, and you’re back in the story faster.\n\nTry a week with and a week without, and compare the pages.',
-    see: ['unstuck-place'],
+    a: 'Some people need silence; others work best with sound. Songs with words tend to tug at the language part of you, so many writers choose instrumental music, rain sounds or café noise while drafting.\n\nA playlist kept for one project can become a cue: the same songs each session, and you’re back in the story faster.\n\nTry a week with and a week without, and compare the pages.\n\nWith Nib Plus, Focus sounds in Commands plays rain, a café or a fire, and typewriter keys as you type.',
+    see: ['unstuck-place', 'nib-focus-sounds'],
   },
   {
     id: 'unstuck-distracted',

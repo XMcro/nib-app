@@ -1,5 +1,7 @@
-import { registerPlugin } from '@capacitor/core'
+import { registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
+import type { JSONContent } from '@tiptap/react'
+import { docOf } from '../editor/bookFind'
 import { nativeApp } from './platform'
 
 /**
@@ -7,6 +9,10 @@ import { nativeApp } from './platform'
  * time, on the device. It's the web view's own speech (speechSynthesis) where
  * it has it, and the app's on the Mac, where it doesn't: either way the voice
  * chosen in the device's settings for spoken content.
+ *
+ * And with Nib Plus, in the app, the same voice saved as audio instead
+ * (`record`): a document, or a whole book, to proofread by ear away from the
+ * screen.
  */
 
 /** A sentence to read, and where it is in the document. */
@@ -88,6 +94,10 @@ const webVoice: Voice = {
 const nibSpeech = registerPlugin<{
   speak(options: { text: string; rate: number }): Promise<{ finished: boolean }>
   stop(): Promise<void>
+  /** `pieces` as an .m4a named `name` in Caches/exports (lib/exportFile), telling `recording` how far it has got. Answers its place. */
+  record(options: { name: string; pieces: Piece[]; rate: number }): Promise<{ path: string }>
+  stopRecording(): Promise<void>
+  addListener(event: 'recording', listener: (progress: { done: number; of: number }) => void): Promise<PluginListenerHandle>
 }>('NibSpeech')
 // The Mac's web view has no speech of its own: the app's (ios/App/App/NibSpeechPlugin).
 const appVoice: Voice = {
@@ -192,3 +202,60 @@ export function readAloud(
     },
   }
 }
+
+/** What a recording says, in order: a sentence, or a pause in seconds. */
+export type Piece = { say: string } | { pause: number }
+
+/** The pause between one document and the next: a breath before the next chapter's title. */
+const BETWEEN = 1.5
+
+/**
+ * What a recording of `bodies` says: a document, or a book's in order (its
+ * title page, each part's name, its chapters), each read as Read aloud reads
+ * it, from its first line, its title. All of it, folded or not, with a pause
+ * between one and the next.
+ */
+export function piecesOf(bodies: JSONContent[]): Piece[] {
+  const pieces: Piece[] = []
+  for (const body of bodies) {
+    const said = sentencesIn(docOf(body)).map((sentence) => ({ say: sentence.text }))
+    if (said.length === 0) continue
+    if (pieces.length > 0) pieces.push({ pause: BETWEEN })
+    pieces.push(...said)
+  }
+  return pieces
+}
+
+/** A recording stopped before it was done (stopRecording). */
+export class RecordingStopped extends Error {}
+
+/** Another recording was already being made: one at a time. */
+export class RecordingBusy extends Error {}
+
+/** Why the Plus sheet opened, when audio was asked for without it. */
+export const AUDIO_PLUS = 'Saving your writing as audio, to listen to away from the screen, is part of Nib Plus.'
+
+/**
+ * `pieces` as audio in the system's voice, at Read aloud's speed (savedRate):
+ * an .m4a named `name`, made by the app (ios/App/App/NibSpeechPlugin) on
+ * iPhone, iPad and Mac alike. `onProgress` hears how much is done, 0 to 1.
+ * Answers its place, to be handed over (lib/exportFile handOverFile).
+ * Stopped, it throws RecordingStopped; with another being made, RecordingBusy.
+ */
+export async function record(name: string, pieces: Piece[], onProgress?: (done: number) => void): Promise<string> {
+  const listening = onProgress ? await nibSpeech.addListener('recording', ({ done, of }) => onProgress(of > 0 ? done / of : 0)) : null
+  try {
+    const { path } = await nibSpeech.record({ name, pieces, rate: savedRate() })
+    return path
+  } catch (error) {
+    const code = (error as { code?: unknown }).code
+    if (code === 'stopped') throw new RecordingStopped()
+    if (code === 'busy') throw new RecordingBusy()
+    throw error
+  } finally {
+    await listening?.remove()
+  }
+}
+
+/** Ends the recording being made, if there is one: nothing of it is kept. */
+export const stopRecording = (): Promise<void> => nibSpeech.stopRecording().catch(() => {})

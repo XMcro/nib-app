@@ -1,4 +1,4 @@
-import { base64, base64url, fromBase64url } from './base64'
+import { base64, base64url, fromBase64url, isBase64 } from './base64'
 import { INBOX_KEY_SHAPE, KEY_SHAPE, LIBRARY_ID_SHAPE } from './wire.mjs'
 
 /**
@@ -65,14 +65,12 @@ export async function sealPost(to: string, post: Post): Promise<string> {
   return base64(joined(Uint8Array.of(VERSION), once, iv, sealed))
 }
 
-/** Standard base64, whole. */
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 /** The least a sealed post can be, in base64: its version, a key, an IV, and the seal's own 16 bytes around nothing. */
 const LEAST = Math.ceil(((1 + POINT + IV + 16) * 4) / 3)
 
 /** Whether `sealed` is shaped as `sealPost` makes one. All the server can tell of one that comes sealed already: it can't open it to see. */
 export function sealedShape(sealed: string): boolean {
-  return sealed.length >= LEAST && BASE64.test(sealed) && atob(sealed.slice(0, 4)).charCodeAt(0) === VERSION
+  return sealed.length >= LEAST && isBase64(sealed) && atob(sealed.slice(0, 4)).charCodeAt(0) === VERSION
 }
 
 /**

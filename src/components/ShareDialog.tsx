@@ -146,7 +146,7 @@ export function ShareDialog({
               {!status
                 ? 'To be read once.'
                 : status.read
-                  ? 'It has been read, and is deleted from Nib’s server. The link no longer works.'
+                  ? 'It has been read, and the link no longer works. Nib’s server deletes its copy ten minutes after the reading.'
                   : 'To be read once. Not read yet.'}
             </p>
           ) : (
@@ -292,7 +292,7 @@ export function ShareDialog({
           </label>
           {once && (
             <p className="mt-1 text-[11px] leading-[1.5] text-muted">
-              The first reader to open it sees it. Then it’s deleted from Nib’s server, and the link stops working.
+              The first reader to open it sees it. Then the link stops working for anyone else, and it’s deleted from Nib’s server ten minutes later.
             </p>
           )}
           <div className="mt-4 flex items-center justify-end gap-4">

@@ -1,5 +1,7 @@
 import { buddyAsked } from './buddy'
+import { invitationsAsked, invitationsHere } from './invitationSwitch'
 import { countsAnswer } from './counts'
+import { cardToOffer } from './yearCard'
 import { keychain } from './keychain'
 import { CANT_REACH } from './notices'
 import { deviceKind, nativeApp } from './platform'
@@ -21,6 +23,8 @@ export const ASK_COUNTS_AT = 2
 export const OFFER_FEEDBACK_AT = 3
 /** A launch after feedback's: a writer who updates has passed both, and meets the writing buddy at the next launch. */
 export const OFFER_BUDDY_AT = 4
+/** A launch after Inkwell's: invitations (lib/invitations) asked on their own, as promotional notifications are (App Store guideline 4.5.4). */
+export const OFFER_INVITATIONS_AT = 5
 const OFFERED = 'feedback-offered'
 const GIFTED = 'feedback-gifted'
 
@@ -47,12 +51,19 @@ export const rememberOffered = () => remember(OFFERED)
 export const rememberGifted = () => remember(GIFTED)
 export const giftStillOpen = async () => nativeApp && !(await happened(GIFTED))
 
-/** What's due to be asked at this launch, at most one. Last, the writing buddy (lib/buddy), once, with nothing else to ask. */
-export async function askDue(): Promise<'counts' | 'feedback' | 'buddy' | null> {
+/**
+ * What's due to be asked at this launch, at most one. After counts, in
+ * December, the year's card (lib/yearCard), once a year: it can't wait for
+ * January as the rest can. Last, the writing buddy (lib/buddy), once, with
+ * nothing else to ask.
+ */
+export async function askDue(): Promise<'counts' | 'card' | 'feedback' | 'buddy' | 'invitations' | null> {
   const n = launches()
   if (n >= ASK_COUNTS_AT && countsAnswer() === null) return 'counts'
+  if (cardToOffer(Date.now())) return 'card'
   if (n >= OFFER_FEEDBACK_AT && !(await happened(OFFERED))) return 'feedback'
   if (n >= OFFER_BUDDY_AT && !buddyAsked()) return 'buddy'
+  if (n >= OFFER_INVITATIONS_AT && invitationsHere && !invitationsAsked()) return 'invitations'
   return null
 }
 

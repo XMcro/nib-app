@@ -8,10 +8,26 @@ import { nativeApp } from './platform'
  * app, and only from iOS and macOS 26, the first with Vision's document
  * reader; anywhere else a picture is just a picture.
  */
-const reader = registerPlugin<{ read(options: { image: string }): Promise<{ paragraphs: string[] }> }>('NibText')
+const reader = registerPlugin<{
+  read(options: { image: string }): Promise<{ paragraphs: string[] }>
+  warm(): Promise<void>
+}>('NibText')
 
 /** Larger than a camera's largest photo: past it, a picture isn't sent across to be read (as text, four thirds its size), and goes in as a picture. */
 export const READ_MAX = 20 * 1024 * 1024
+
+/** How long after launch Vision is readied (`warmUp`): Nib has opened by then. */
+const WARM_AFTER_MS = 5000
+
+/**
+ * Vision readies its reader the first time an app reads a picture, about 24
+ * seconds on a Mac, and the first picture pasted waited for it. Done quietly
+ * a little after each launch instead (NibTextPlugin warm): after the first
+ * time, and until the system is updated, that's a fifth of a second.
+ */
+export function warmUp() {
+  if (nativeApp) setTimeout(() => void reader.warm().catch(() => {}), WARM_AFTER_MS)
+}
 
 /**
  * The paragraphs of words in `file`, in reading order, or null when it has

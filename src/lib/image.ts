@@ -135,16 +135,31 @@ export function wellFormed(node: unknown): node is JSONContent {
   if (!isObject(node) || typeof node.type !== 'string') return false
   if ((node.type === 'text' || node.text !== undefined) && (typeof node.text !== 'string' || !node.text)) return false
   if (node.attrs !== undefined && !isObject(node.attrs)) return false
-  if (node.marks !== undefined && !(Array.isArray(node.marks) && node.marks.every((mark) => isObject(mark) && typeof mark.type === 'string'))) return false
+  if (node.marks !== undefined && !(Array.isArray(node.marks) && node.marks.every((mark) => isObject(mark) && typeof mark.type === 'string' && (mark.attrs === undefined || isObject(mark.attrs))))) return false
   return node.content === undefined || Array.isArray(node.content)
 }
 
 /** A table cell's column widths go into a style, so numbers or nothing: a string there wrote CSS. */
 const widths = (value: unknown) => value === null || (Array.isArray(value) && value.every((width) => typeof width === 'number' && Number.isFinite(width) && width > 0))
 
+/**
+ * How many columns or rows a table cell takes: a whole number up to a hundred,
+ * or one. A table is drawn a column at a time, so a cell said to span ten
+ * million of them was a page that froze Nib each time it was opened or exported.
+ */
+export const asSpan = (value: unknown): number => (Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 100 ? (value as number) : 1)
+
+const noAddress = (mark: { type: string; attrs?: Record<string, unknown> }) => mark.type === 'link' && typeof mark.attrs?.href !== 'string'
+
 function filterNode(node: JSONContent, depth: number): JSONContent | null {
   if (depth > MAX_DEPTH || !wellFormed(node)) return null
   if (node.attrs && 'colwidth' in node.attrs && !widths(node.attrs.colwidth)) node = { ...node, attrs: { ...node.attrs, colwidth: null } }
+  // A link is drawn by asking whether its address is one to follow, which reads it as text: a number there, from a
+  // backup or another device, and the document it was in opened to nothing. The words stay, the link goes.
+  if (node.marks?.some(noAddress)) node = { ...node, marks: node.marks.filter((mark) => !noAddress(mark)) }
+  for (const name of ['colspan', 'rowspan']) {
+    if (node.attrs && name in node.attrs && node.attrs[name] !== asSpan(node.attrs[name])) node = { ...node, attrs: { ...node.attrs, [name]: asSpan(node.attrs[name]) } }
+  }
   if (node.type === 'image') {
     if (!allowedImageSrc(node.attrs?.src)) return null
     // A drawing that fails the check costs only the editing: the picture stays.
@@ -176,15 +191,19 @@ function filterNode(node: JSONContent, depth: number): JSONContent | null {
  * Rewrites `src` on every image node. No allowlist — callers run
  * `filterBodyImages` / `allowedImageSrc`. The Dexie backup uses this to swap
  * a data URI for a hash ref without a second policy walker of its own.
+ * What isn't a node, or is deeper than any is, is left as it is for that
+ * filter to drop: read here first, a damaged backup threw, and was answered
+ * as if the device couldn't save.
  */
 export function mapImageSrcs(body: JSONContent, fn: (src: string) => string): JSONContent {
-  return mapNode(body)
-  function mapNode(node: JSONContent): JSONContent {
+  return mapNode(body, 0)
+  function mapNode(node: JSONContent, depth: number): JSONContent {
+    if (depth > MAX_DEPTH || !wellFormed(node)) return node
     if (node.type === 'image') {
       return { ...node, attrs: { ...node.attrs, src: fn(String(node.attrs?.src ?? '')) } }
     }
     if (!node.content) return node
-    return { ...node, content: node.content.map(mapNode) }
+    return { ...node, content: node.content.map((child) => mapNode(child, depth + 1)) }
   }
 }
 

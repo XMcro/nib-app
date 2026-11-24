@@ -26,7 +26,9 @@ vi.mock('./session', () => ({
       made.sessions.push(this)
     }
     start() {}
-    stop() {}
+    stop() {
+      made.order.push('stopped')
+    }
   },
 }))
 const kept = vi.hoisted(() => ({ code: '0123-4567-89AB-CDEF-GHJK-MNPQ' as string | null }))
@@ -106,6 +108,16 @@ describe('sync only when I ask, on this device', () => {
     act(() => result.current.setManual(true))
     act(() => result.current.syncNow())
     expect(made.sessions[0].run).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('turning sync off', () => {
+  // Its state forgotten under a pass still going, that pass began again with the code it held.
+  it('forgets what this device knows with no pass under way, and stops the session before it’s let go', async () => {
+    const { result } = await running()
+    await act(() => result.current.turnOff())
+    expect(made.order.slice(0, 4)).toEqual(['held', 'forgotten', 'stopped', 'let go'])
+    expect(result.current.code).toBeNull()
   })
 })
 

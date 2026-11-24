@@ -1,6 +1,6 @@
 import { answered, ok, Refused, type Call } from './answer'
-import { extendsPaid, GRACE_MS, paidThrough } from './paid'
-import { inSignedWindow, verifySignature } from './signing'
+import { extendsPaid, KEPT_MONTHS, keptTo, paidThrough } from './paid'
+import { inboxCheck, inSignedWindow, verifySignature } from './signing'
 import { FILES_LIMIT, INBOX_BYTES, INBOX_DAILY, INBOX_DAYS, INBOX_WAITING, UNENROLLED, utcDay, type FileList, type Inbox, type PushResult, type Status, type Wire } from './wire.mjs'
 
 /**
@@ -52,8 +52,8 @@ const INBOX_PAGE = 50
 const ROW_OVERHEAD = 100
 const CHUNK = 900_000 // a row stays under SQLite-in-Durable-Objects' 2 MB cap
 const PAGE_BYTES = 8_000_000
-/** How long a library outlives what paid for it, grace period and all, before it is deleted (site/privacy.html). */
-export const KEPT_MONTHS = 12
+/** How long a library outlives what paid for it, grace period and all, before it is deleted (site/privacy.html): worker/paid `keptTo`. */
+export { KEPT_MONTHS }
 
 /**
  * A request whose signature checked out (libraryRequests), standing in for
@@ -62,6 +62,24 @@ export const KEPT_MONTHS = 12
  */
 const SIGNED: unique symbol = Symbol('signed')
 type Auth = string | typeof SIGNED
+
+/**
+ * How long a file goes with no device naming it (`Library.namedFiles`) before the Worker's check takes it for one
+ * nothing uses: as long as the server keeps a document's past versions, which may be all that names it.
+ */
+export const UNUSED_DAYS = 90
+/**
+ * And only in a library a device has named all its files for this lately, and devices have gone on doing so for
+ * UNUSED_DAYS with never a gap this long: one whose devices have gone quiet, or include a Nib from before they
+ * said, has had nothing to say a file is still used.
+ */
+export const NAMED_LATELY_DAYS = 7
+const DAY_MS = 86_400_000
+
+/** The longest a key is held as being cleared by the Worker's check (`Library.unlisted`): as long as one run of it may last. */
+export const SWEEP_HOLD_MS = 15 * 60_000
+const BEING_CLEARED = 'An old copy of that file is being cleared from the server. It can be sent again in a moment.'
+
 
 /** How long a signed request's signature is remembered: both sides of the window its time must fall in (worker/signing). */
 const REPLAY_MS = 10 * 60_000
@@ -102,9 +120,13 @@ export class Library {
     if (!sql.all('PRAGMA table_info(files)').some((column) => column.name === 'state')) {
       sql.run(`ALTER TABLE files ADD COLUMN state INTEGER NOT NULL DEFAULT ${STORED}`)
     }
+    // When a device last said a document of its own uses it (`namedFiles`). Added to libraries made before it.
+    if (!sql.all('PRAGMA table_info(files)').some((column) => column.name === 'named')) sql.run('ALTER TABLE files ADD COLUMN named INTEGER')
     sql.run('CREATE TABLE IF NOT EXISTS inbox (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, p TEXT NOT NULL)')
     // What each subscription has itself paid this library to (`pays`). Added to libraries made before it.
     sql.run('CREATE TABLE IF NOT EXISTS paid (subscription TEXT PRIMARY KEY, until INTEGER NOT NULL)')
+    // Keys the Worker's check is clearing from the store just now (`unlisted`). Added to libraries made before it.
+    sql.run('CREATE TABLE IF NOT EXISTS sweeping (k TEXT NOT NULL, run TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (k, run))')
     // Signed requests that change something, lately taken (`taken`). Added to libraries made before it.
     sql.run('CREATE TABLE IF NOT EXISTS taken (signature TEXT PRIMARY KEY, request TEXT NOT NULL, at INTEGER NOT NULL)')
   }
@@ -145,7 +167,7 @@ export class Library {
    * one, so a mistyped code or a library wiped from another device is a 404,
    * not a new empty library that quietly takes the writing elsewhere.
    */
-  create(auth: Auth, expiresAt: number, now: number, subscription?: string): Status {
+  create(auth: Auth, expiresAt: number, now: number, subscription?: string, id?: string): Status {
     if (!this.made) {
       this.tables()
       this.made = true
@@ -153,7 +175,7 @@ export class Library {
     // Deleted (`wipe`, `bury`), never made again: the id is in its inbox's address, which services may still post to (the security review of 2026-11-13).
     if (this.gone()) throw new Refused(410, LIBRARY_GONE)
     if (this.get('auth') === undefined && typeof auth === 'string') this.set('auth', auth)
-    return this.entitle(auth, expiresAt, now, subscription)
+    return this.entitle(auth, expiresAt, now, subscription, id)
   }
 
   /**
@@ -163,8 +185,9 @@ export class Library {
    * purchase's original transaction id, which a library made before these
    * were kept picks up here, and syncs without meanwhile.
    */
-  entitle(auth: Auth, expiresAt: number, now: number, subscription?: string): Status {
+  entitle(auth: Auth, expiresAt: number, now: number, subscription?: string, id?: string): Status {
     this.authorise(auth, now, { needPlus: false })
+    if (id) this.set('id', id)
     if (subscription) this.pays(subscription, expiresAt)
     if (extendsPaid(this.get('expires'), expiresAt)) this.set('expires', expiresAt)
     if (subscription) this.set('subscription', subscription)
@@ -202,51 +225,92 @@ export class Library {
     const other = this.sql.all('SELECT subscription, until FROM paid ORDER BY until DESC, subscription LIMIT 1')[0]
     this.set('expires', other ? Number(other.until) : 0)
     if (other) this.set('subscription', String(other.subscription))
-    else this.set('revoked', now)
+    // Always: what another paid to may be long past, and isn't when this library stopped being paid for (`deletesAt`).
+    this.set('revoked', now)
   }
 
   /**
    * What the App Store says `subscription` has paid to, for a library it pays for, whether or not a device has
    * opened it since. Only ever extends.
    */
-  paidTo(expiresAt: number, subscription?: string) {
+  paidTo(expiresAt: number, subscription?: string, id?: string) {
     if (!this.exists()) return
+    if (id) this.set('id', id)
     if (subscription) this.pays(subscription, expiresAt)
     if (extendsPaid(this.get('expires'), expiresAt)) this.set('expires', expiresAt)
   }
 
   /**
-   * When this library is deleted if nothing pays for it again: KEPT_MONTHS
-   * past the end of what was paid for and its grace. A refund leaves no end
-   * date of its own, so it counts from when it came; one from before that was
-   * kept, from the first time it's asked. Null for no library.
+   * Every subscription that has paid for this library, the one on record among them: each keeps it in its own
+   * list (worker/subscriber), and each is told when the library is deleted (`wipe`, `retireLibrary`). Only the
+   * one that sent its receipt last was: another in the household kept the deleted library's id for good, and
+   * counted it against its five for sixty days (the server audit of 2026-11-23).
    */
-  deletesAt(now: number): number | null {
-    if (!this.exists()) return null
-    const expires = this.get('expires')
-    let ended = typeof expires === 'number' && expires > 0 ? expires : this.get('revoked')
-    if (typeof ended !== 'number') this.set('revoked', (ended = now))
-    const date = new Date(ended + GRACE_MS)
-    date.setUTCMonth(date.getUTCMonth() + KEPT_MONTHS)
-    return date.getTime()
+  payers(): string[] {
+    if (!this.exists()) return []
+    const named = this.get('subscription')
+    const paid = this.sql.all('SELECT subscription FROM paid').map((row) => String(row.subscription))
+    return [...new Set([...paid, ...(typeof named === 'string' ? [named] : [])])].sort()
   }
 
   /**
-   * Its object's storage has been deleted (`retireLibrary`): any request still
-   * to come here finds nothing, and makes nothing; and it's marked as gone, so
-   * no new library is ever made under its id. A new code's library has a new
-   * id (src/sync `create`), so only someone given its old inbox address would
-   * ask, to have the posts still sent there (the security review of 2026-11-13).
+   * This library's own id, as the subscriptions that pay for it list it: told with each receipt and each word
+   * from the App Store (`entitle`, `paidTo`), since its object can't know the name it is reached by when its
+   * alarm wakes it. Null in one not paid for since this was kept.
+   */
+  id(): string | null {
+    const id = this.get('id')
+    return typeof id === 'string' ? id : null
+  }
+
+  /**
+   * When this library is deleted if nothing pays for it again: KEPT_MONTHS
+   * past the end of what was paid for and its grace. A refund leaves no end
+   * date of its own, so it counts from when it came, or from what another
+   * subscription has paid to if that is later: never from one's old date
+   * alone, which set a household's library to be deleted the moment the
+   * other's purchase was refunded. A refund from before that was kept
+   * counts from the first time it's asked. Null for no library.
+   */
+  deletesAt(now: number): number | null {
+    if (!this.exists()) return null
+    const [expires, revoked] = [this.get('expires'), this.get('revoked')]
+    const paid = typeof expires === 'number' && expires > 0 ? expires : null
+    let ended = paid === null ? revoked : typeof revoked === 'number' ? Math.max(paid, revoked) : paid
+    if (typeof ended !== 'number') this.set('revoked', (ended = now))
+    return keptTo(ended)
+  }
+
+  /**
+   * Everything deleted but the mark that a library was here (`wipe`, `retireLibrary`): any request still to
+   * come finds nothing, and makes nothing, and no new library is ever made under its id. A new code's library has
+   * a new id (src/sync `create`), so only someone given its old inbox address would ask, to have the posts still
+   * sent there (the security review of 2026-11-13).
+   *
+   * In one step: its tables dropped, and `meta` left holding the mark alone. The object's whole storage was
+   * deleted and the mark put back after, two steps with a moment between them when there was none (the server
+   * audit of 2026-11-23). Dropped, not emptied: an emptied table is kept, for every library ever deleted. The
+   * database shrinks as its rows go, so nothing more is gained by deleting the object's storage (measured on
+   * Cloudflare's local runtime: 3.6 MB to 24 KB, against 12 KB).
    */
   bury() {
-    this.sql.run('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v)')
+    this.sql.transaction(() => {
+      for (const table of ['records', 'chunks', 'files', 'inbox', 'paid', 'taken', 'sweeping']) this.sql.run(`DROP TABLE IF EXISTS ${table}`)
+      this.sql.run('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v)')
+      this.sql.run('DELETE FROM meta')
+      this.sql.run("INSERT INTO meta (k, v) VALUES ('gone', 1)")
+    })
     this.made = true
-    this.set('gone', 1)
   }
 
   /** Whether a library was here and was deleted (`wipe`, `bury`). */
   gone(): boolean {
     return this.get('gone') === 1
+  }
+
+  /** Whether one deleted still has its emptied tables: wiped before a wipe dropped them (`bury`). */
+  leftover(): boolean {
+    return this.gone() && this.sql.all("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'records'").length > 0
   }
 
   status(auth: Auth, now: number): Status {
@@ -308,8 +372,11 @@ export class Library {
   }
 
   /** Changes after `since`, oldest first. `seq` is where to resume from. `inbox`: how many posts wait in its inbox, said only when some do, so a device asks for them only then. */
-  changes(auth: Auth, since: number, now: number, limit = 500): { records: Wire[]; seq: number; more: boolean; inbox?: number } {
+  changes(auth: Auth, since: number, now: number, limit = 500, names = false): { records: Wire[]; seq: number; more: boolean; inbox?: number } {
     this.authorise(auth, now)
+    // A device that doesn't say which files it uses (`namedFiles`), a Nib from before they did: kept, a day at a
+    // time, so that none of the library's files is taken for unused while such a device still syncs it (`unlisted`).
+    if (!names && Number(this.get('quietPull') ?? 0) <= now - DAY_MS) this.set('quietPull', now)
     const rows = this.sql.all('SELECT k, seq, deleted FROM records WHERE seq > ? AND expired = 0 ORDER BY seq LIMIT ?', since, limit + 1)
     const records: Wire[] = []
     let bytes = 0
@@ -382,7 +449,9 @@ export class Library {
    * them while those that have them keep them. Returns the keys let go of.
    */
   expire(auth: Auth, keys: string[], now: number): string[] {
-    this.authorise(auth, now)
+    // Without Plus too, as a file is taken off and an inbox ended: it only lets go. Needing it, a lapsed library
+    // kept every version it had, past the 90 days the policy says, till it was deleted (the server audit of 2026-11-23).
+    this.authorise(auth, now, { needPlus: false })
     return this.sql.transaction(() => {
       const before = this.bytes()
       let total = before
@@ -418,6 +487,8 @@ export class Library {
   fileRoom(auth: Auth, key: string, size: number, now: number) {
     this.authorise(auth, now)
     if (this.emptying) throw new Refused(404, 'No library for that code.')
+    // The device sends it again at its next look (src/sync/files).
+    if (this.beingSwept(key, now)) throw new Refused(409, BEING_CLEARED)
     if (this.fileBytes(key) + Math.max(size, FILE_FLOOR) > this.filesLimit) throw new Refused(507, FILES_FULL)
     this.sql.run(`INSERT INTO files (k, size, state) VALUES (?, ?, ${SENDING}) ON CONFLICT (k) DO UPDATE SET size = CASE WHEN state = ${STORED} THEN size ELSE MAX(size, excluded.size) END`, key, size)
   }
@@ -433,14 +504,101 @@ export class Library {
    * library has gone or is going meanwhile, or two sent at once have come to
    * more than there's room for: whoever asked then deletes it from the store.
    */
-  storedFile(key: string, size: number) {
+  storedFile(key: string, size: number, now = Date.now()) {
     if (!this.exists() || this.emptying) throw new Refused(404, 'No library for that code.')
+    // Booked before the check asked, its booking gone since (another send of it failed), and stored as the check
+    // deletes: not counted, so whoever asked deletes it, and its device sends it again.
+    if (this.beingSwept(key, now)) throw new Refused(409, BEING_CLEARED)
     if (this.fileBytes(key) + Math.max(size, FILE_FLOOR) > this.filesLimit) {
       // What was under this key before was written over, and goes with it.
       this.sql.run('DELETE FROM files WHERE k = ?', key)
       throw new Refused(507, FILES_FULL)
     }
-    this.sql.run(`INSERT INTO files (k, size, state) VALUES (?, ?, ${STORED}) ON CONFLICT (k) DO UPDATE SET size = excluded.size, state = ${STORED}`, key, size)
+    // Just sent: used, as of now.
+    this.sql.run(`INSERT INTO files (k, size, state, named) VALUES (?, ?, ${STORED}, ?) ON CONFLICT (k) DO UPDATE SET size = excluded.size, state = ${STORED}, named = excluded.named`, key, size, now)
+  }
+
+  /**
+   * Those of `keys` this library doesn't account for in the store, in any state: kept, booked while it's sent, or
+   * going. For the Worker's own check of the store (worker/filecheck), which deletes them. For a `run` of the
+   * check that is going to delete, each is held as being cleared by that run till it says it's done (`swept`), and
+   * none can be sent or counted meanwhile (`fileRoom`, `storedFile`): sent in the moment between the check asking
+   * and deleting, a file was stored, counted, and then deleted from under its library, which went on listing it
+   * (found checking the check, 2026-11-23). One another run holds isn't given to this one. Held in the library's
+   * own storage, so that it outlasts the object being put to sleep, and no longer than a run can last.
+   */
+  unlisted(keys: string[], now: number, run?: string): { keys: string[]; unused: string[] } {
+    return this.sql.transaction(() => {
+      this.sql.run('DELETE FROM sweeping WHERE at <= ?', now - SWEEP_HOLD_MS)
+      const rows = new Map(keys.map((key) => [key, this.sql.all('SELECT state, named FROM files WHERE k = ?', key)[0]]))
+      const free = keys.filter((key) => !rows.get(key) && !this.beingSwept(key, now))
+      // Those it does account for that no device has named in UNUSED_DAYS. Only where its devices have gone on
+      // saying which they use for all that time, with never a week's gap, and none that doesn't say has synced
+      // in it: the first device back after a long quiet, saying what it uses, had every file only another used
+      // deleted that night; and so had a Nib that says, beside one from before that never does (found checking
+      // the check, 2026-11-23).
+      const long = now - UNUSED_DAYS * DAY_MS
+      const lately = Number(this.get('filesNamed') ?? 0) > now - NAMED_LATELY_DAYS * DAY_MS && Number(this.get('namedSince') ?? Infinity) <= long && Number(this.get('quietPull') ?? 0) <= long
+      const unused = keys.filter((key) => {
+        const row = rows.get(key)
+        return lately && row && row.state === STORED && typeof row.named === 'number' && row.named <= long && !this.beingSwept(key, now)
+      })
+      if (run !== undefined) {
+        // Forgotten here before they leave the store: stopped between the two, the check finds them next time as files no library lists.
+        for (const key of unused) this.sql.run('DELETE FROM files WHERE k = ?', key)
+        for (const key of [...free, ...unused]) this.sql.run('INSERT OR REPLACE INTO sweeping (k, run, at) VALUES (?, ?, ?)', key, run, now)
+      }
+      return { keys: free, unused }
+    })
+  }
+
+  /**
+   * A device says which files its documents use, in what they hold or in their history, by their keys: each is
+   * named as of now. `done`: that's all of them, said in as many goes as it took. What no device names for
+   * UNUSED_DAYS, in a library whose devices have gone on saying for as long, is one nothing uses, and the Worker's
+   * check deletes it (`unlisted`): only a device can tell, since a document is sealed and the server can't see
+   * which files it uses.
+   * A file a library's devices no longer used stayed on the server till the library was deleted (the server audit
+   * of 2026-11-23, L13). One from before this was kept is taken as named when its library is first told anything.
+   */
+  namedFiles(auth: Auth, keys: string[], done: boolean, now: number): { named: true } {
+    this.authorise(auth, now)
+    this.sql.transaction(() => {
+      // Once: the rows from before this was kept.
+      if (this.get('filesDated') === undefined) {
+        this.sql.run('UPDATE files SET named = ? WHERE named IS NULL', now)
+        this.set('filesDated', 1)
+      }
+      // Half a day is near enough: named at every look by every device, each file was written each time.
+      for (const key of keys) this.sql.run('UPDATE files SET named = ? WHERE k = ? AND (named IS NULL OR named < ?)', now, key, now - DAY_MS / 2)
+      if (done) {
+        // Since when they've gone on saying: from now, if it's the first time, or the first in more than a week.
+        if (Number(this.get('filesNamed') ?? 0) <= now - NAMED_LATELY_DAYS * DAY_MS) this.set('namedSince', now)
+        this.set('filesNamed', now)
+      }
+    })
+    return { named: true }
+  }
+
+  /** A run of the check has done with these keys (`unlisted`): they can be sent again. Only its own. */
+  swept(keys: string[], run: string) {
+    if (!this.exists()) return
+    for (const key of keys) this.sql.run('DELETE FROM sweeping WHERE k = ? AND run = ?', key, run)
+  }
+
+  /** Whether a run of the check is clearing a file by this key from the store just now. */
+  private beingSwept(key: string, now: number): boolean {
+    return this.sql.all('SELECT 1 FROM sweeping WHERE k = ? AND at > ?', key, now - SWEEP_HOLD_MS).length > 0
+  }
+
+  /**
+   * A file this library lists wasn't in the store when it was asked for, after `asked` (worker/files): no longer
+   * listed, nor counted. Not one on its way in; nor one stored or named at `asked` or since, which landed while
+   * the store was asked and is there. `asked` is by this library's own clock (`authorise`), as `named` is: by the
+   * Worker's, one ahead of this forgot a file that had just landed.
+   */
+  fileMissing(key: string, asked: number) {
+    if (this.exists()) this.sql.run(`DELETE FROM files WHERE k = ? AND state = ${STORED} AND (named IS NULL OR named < ?)`, key, asked)
   }
 
   /** Which files the server has, for a device to know what to send and what to fetch. */
@@ -469,7 +627,9 @@ export class Library {
     try {
       this.sql.run(`UPDATE files SET state = ${LEAVING}`)
       await act()
-      this.sql.run('DELETE FROM files')
+      // Unless the library went meanwhile, its tables with it (`bury`): asked to delete everything twice at once,
+      // the later of the two found no table here.
+      if (this.exists()) this.sql.run('DELETE FROM files')
     } finally {
       this.emptying = false
     }
@@ -485,6 +645,9 @@ export class Library {
    */
   setInbox(auth: Auth, key: string, address: string, kept: string, now: number): { on: true } {
     this.authorise(auth, now)
+    // A new address starts its day afresh: the old one's count stayed, so the address made to get away from one
+    // that had leaked, and been sent the day's 200 posts, took none itself till midnight (the server audit of 2026-11-23).
+    if (this.get('inboxAddress') !== address) this.sql.run("DELETE FROM meta WHERE k IN ('inboxDay', 'inboxCount')")
     this.set('inboxKey', key)
     this.set('inboxAddress', address)
     this.set('inboxKept', kept)
@@ -546,8 +709,24 @@ export class Library {
       // As `changes` does: always one, and no more once an answer is this big.
       if (bytes > PAGE_BYTES) break
     }
-    const kept = this.get('inboxKept')
-    return { on: this.get('inboxKey') !== undefined, ...(typeof kept === 'string' ? { kept } : {}), posts, more: posts.length < rows.length }
+    // With what's kept, the key posts are sealed with, as the server has it: for a device to see it is its own
+    // (src/sync/inbox `own`). The code's hash alone could put another key there, and the devices never knew which
+    // the server sealed with (the server audit of 2026-11-23). Not the hash of the address's secret: `setInbox`
+    // asks for it, so given here it let whoever had the code keep the writer's address and change only the key.
+    const [kept, key] = [this.get('inboxKept'), this.get('inboxKey')]
+    return {
+      on: key !== undefined,
+      ...(typeof kept === 'string' ? { kept } : {}),
+      ...(typeof key === 'string' ? { key } : {}),
+      posts,
+      more: posts.length < rows.length,
+    }
+  }
+
+  /** The hash of the secret in its inbox's address, as `setInbox` took it; none with no inbox. Never told (`libraryRequests` `inbox`). */
+  inboxAt(): string | undefined {
+    const address = this.get('inboxAddress')
+    return typeof address === 'string' ? address : undefined
   }
 
   /** Posts a device has made notes of, by their ids: deleted here. */
@@ -578,6 +757,8 @@ export class Library {
    * signed-only back off (the red-team review of 2026-11-17).
    */
   taken(signature: string, request: string, now: number): boolean {
+    // Deleted while the signature was checked: nothing to keep it in, and the request finds no library next.
+    if (!this.exists()) return false
     this.sql.run('DELETE FROM taken WHERE at < ?', now - REPLAY_MS)
     const before = this.sql.all('SELECT request FROM taken WHERE signature = ?', signature)[0]
     if (before) return before.request !== request
@@ -587,17 +768,24 @@ export class Library {
 
   /**
    * Everything, gone. The next request with this code finds no library.
-   * Returns the subscription that was paying for it, so its place is freed.
+   * Returns every subscription that paid for it (`payers`), so its place in each is freed.
    */
-  wipe(auth: Auth, now: number): string | null {
+  wipe(auth: Auth, now: number): string[] {
     this.authorise(auth, now, { needPlus: false })
-    const subscription = this.get('subscription')
-    this.sql.transaction(() => {
-      for (const table of ['meta', 'records', 'chunks', 'files', 'inbox', 'paid', 'taken']) this.sql.run(`DELETE FROM ${table}`)
-      this.set('gone', 1)
-    })
-    return typeof subscription === 'string' ? subscription : null
+    const subscriptions = this.payers()
+    this.bury()
+    return subscriptions
   }
+}
+
+/**
+ * A library's inbox as a device is told of it (`Library.inbox`), with a check of its address (worker/signing
+ * `inboxCheck`): enough for a device to see the address is its own, and no use in setting one.
+ */
+export async function inboxTold(library: Library, auth: Parameters<Library['inbox']>[0], now: number): Promise<Inbox> {
+  const inbox = library.inbox(auth, now)
+  const address = library.inboxAt()
+  return address === undefined ? inbox : { ...inbox, check: await inboxCheck(address) }
 }
 
 /** What a signed request proves (worker/sync): the message it signed (worker/signing), the time in it, and the signature. */
@@ -615,11 +803,17 @@ function unsigned(library: Library): Call | null {
 
 /**
  * What a library does beyond its own tables: its alarm, for when it's to be
- * deleted (null for none), and deleting it; and its files in the store
- * (worker/files), which are kept under `home`, its object's own name there,
- * and deleted by `deleteFiles`.
+ * deleted (null for none); and its files in the store (worker/files), which
+ * are kept under `home`, its object's own name there, and deleted by
+ * `deleteFiles`.
  */
-export type LibraryEffects = { alarm(at: number | null): Promise<void>; deleteAll(): Promise<void>; home: string; deleteFiles(): Promise<void> }
+export type LibraryEffects = {
+  alarm(at: number | null): Promise<void>
+  home: string
+  deleteFiles(): Promise<void>
+  /** The library `id`, deleted, let go of by each of the `subscriptions` that paid for it (worker/subscriber `releaseLibrary`). */
+  release?(id: string, subscriptions: string[]): Promise<void>
+}
 
 /**
  * When a library's object next has something to delete: the oldest post
@@ -663,16 +857,21 @@ export function libraryRequests(
     return answered(() => request(SIGNED, now))
   }
   return {
-    create: (asker: Asker, expiresAt: number, subscription?: string) => asked(asker, (auth, now) => ok(library.create(auth, expiresAt, now, subscription))),
-    entitle: (asker: Asker, expiresAt: number, subscription?: string) => asked(asker, (auth, now) => ok(library.entitle(auth, expiresAt, now, subscription))),
+    // `id` is the library's own, for it to tell the subscriptions that pay for it when it's deleted (`Library.id`).
+    create: (asker: Asker, expiresAt: number, subscription?: string, id?: string) => asked(asker, (auth, now) => ok(library.create(auth, expiresAt, now, subscription, id))),
+    entitle: (asker: Asker, expiresAt: number, subscription?: string, id?: string) => asked(asker, (auth, now) => ok(library.entitle(auth, expiresAt, now, subscription, id))),
     status: (asker: Asker) => asked(asker, (auth, now) => ok(library.status(auth, now))),
-    // Just the code, and whether Plus is current: nothing read, nothing counted. And where its files are, for whoever fetches one.
-    authorise: (asker: Asker) =>
+    // Just the code, and whether Plus is current: nothing read, nothing counted. And where its files are, for whoever
+    // fetches one. `needPlus` false for what only lets go (`expire`): asked before its body is read (worker/sync), this
+    // refused a lapsed library the request `expire` itself takes.
+    authorise: (asker: Asker, needPlus = true) =>
       asked(asker, (auth, now) => {
-        library.authorise(auth, now)
-        return ok({ ok: true, home })
+        library.authorise(auth, now, { needPlus })
+        // `at`: this library's clock as it answered, for what is asked of it next about a time (worker/files `fileMissing`).
+        return ok({ ok: true, home, at: now })
       }),
-    changes: (asker: Asker, since: number) => asked(asker, (auth, now) => ok(library.changes(auth, since, now))),
+    // `names`: the device asking is one that says which files it uses (`namedFiles`).
+    changes: (asker: Asker, since: number, names = false) => asked(asker, (auth, now) => ok(library.changes(auth, since, now, undefined, names))),
     push: (asker: Asker, records: Wire[]) => asked(asker, (auth, now) => ok({ results: library.push(auth, records, now) })),
     expire: (asker: Asker, keys: string[]) => asked(asker, (auth, now) => ok({ expired: library.expire(auth, keys, now) })),
     enroll: (asker: Asker, key: string) => asked(asker, (auth, now) => ok(library.enroll(auth, key, now))),
@@ -682,7 +881,7 @@ export function libraryRequests(
       asked(asker, async (auth, now) => {
         library.authorise(auth, now, { needPlus: false })
         await library.emptied(async () => effects.deleteFiles?.())
-        return ok({ wiped: true, subscription: library.wipe(auth, now) })
+        return ok({ wiped: true, subscriptions: library.wipe(auth, now) })
       }),
     fileRoom: (asker: Asker, key: string, size: number) =>
       asked(asker, (auth, now) => {
@@ -692,8 +891,13 @@ export function libraryRequests(
     // From the Worker alone, as `revoke` is: the request that sent the file was checked by `fileRoom`.
     fileStored: (key: string, size: number): Promise<Call> =>
       answered(() => {
-        library.storedFile(key, size)
+        library.storedFile(key, size, clock())
         return ok({ stored: true })
+      }),
+    fileMissing: (key: string, asked: number): Promise<Call> =>
+      answered(() => {
+        library.fileMissing(key, asked)
+        return ok({ forgotten: true })
       }),
     fileFailed: (key: string): Promise<Call> =>
       answered(() => {
@@ -701,6 +905,7 @@ export function libraryRequests(
         return ok({ released: true })
       }),
     files: (asker: Asker) => asked(asker, (auth, now) => ok(library.files(auth, now))),
+    namedFiles: (asker: Asker, keys: string[], done: boolean) => asked(asker, (auth, now) => ok(library.namedFiles(auth, keys, done, now))),
     removeFile: (asker: Asker, key: string) =>
       asked(asker, (auth, now) => {
         library.removeFile(auth, key, now)
@@ -712,14 +917,22 @@ export function libraryRequests(
       await effects.alarm(nextAlarm(library, now))
       return ok({ revoked: true })
     },
-    paidTo: async (expiresAt: number, subscription?: string): Promise<Call> => {
-      library.paidTo(expiresAt, subscription)
+    // From the Worker's one-off (worker/alarms): asked nothing, so that its alarm is set, as any request sets it.
+    // And one wiped before a wipe dropped its tables is taken down to its mark, as one wiped now is.
+    arm: async (): Promise<Call> => {
+      if (library.leftover()) library.bury()
       await effects.alarm(nextAlarm(library, clock()))
-      return ok({ told: true })
+      return ok({ library: library.exists(), gone: library.gone() })
+    },
+    // Whether there is a library here to tell, or was one: for a subscription to let go of one deleted (worker/notifications).
+    paidTo: async (expiresAt: number, subscription?: string, id?: string): Promise<Call> => {
+      library.paidTo(expiresAt, subscription, id)
+      await effects.alarm(nextAlarm(library, clock()))
+      return ok({ told: true, library: library.exists(), gone: library.gone() })
     },
     setInbox: (asker: Asker, key: string, address: string, kept: string) => asked(asker, (auth, now) => ok(library.setInbox(auth, key, address, kept, now))),
     endInbox: (asker: Asker) => asked(asker, (auth, now) => ok(library.endInbox(auth, now))),
-    inbox: (asker: Asker) => asked(asker, (auth, now) => ok(library.inbox(auth, now))),
+    inbox: (asker: Asker) => asked(asker, async (auth, now) => ok(await inboxTold(library, auth, now))),
     tookPosts: (asker: Asker, ids: number[]) => asked(asker, (auth, now) => ok(library.tookPosts(auth, ids, now))),
     // From the Worker (worker/inbox), for whoever holds the inbox's address: no code, no signature.
     inboxFor: (address: string): Promise<Call> => answered(() => ok({ key: library.inboxFor(address, clock()) })),
@@ -731,6 +944,13 @@ export function libraryRequests(
       })
       await effects.alarm(nextAlarm(library, now))
       return answer
+    },
+    // From the Worker's own check of the file store (worker/filecheck): which of these keys this library doesn't
+    // account for, held as being cleared if it's to delete them; or that there's no library here.
+    unlisted: async (keys: string[], run?: string): Promise<Call> => ok({ library: library.exists(), ...(library.exists() ? library.unlisted(keys, clock(), run) : { keys: [], unused: [] }) }),
+    swept: async (keys: string[], run: string): Promise<Call> => {
+      library.swept(keys, run)
+      return ok({})
     },
     // Asked before a signed request's body is read (worker/sync): no more than a signed request is told.
     signs: async (): Promise<Call> => unsigned(library) ?? ok({ signs: true }),
@@ -744,7 +964,7 @@ export type LibraryRequests = ReturnType<typeof libraryRequests>
 /**
  * A library's alarm. Posts kept in its inbox past their time go. Then what's
  * been paid is read again, so a renewal always wins: paid for since, it waits for the new date. Past it, everything
- * goes: its files from the store, then the object's storage.
+ * goes: its files from the store, then all it keeps but the mark that it was here (`bury`).
  */
 export async function retireLibrary(library: Library, now: number, effects: LibraryEffects) {
   const at = library.deletesAt(now)
@@ -755,10 +975,18 @@ export async function retireLibrary(library: Library, now: number, effects: Libr
   await library.emptied(effects.deleteFiles)
   // Paid for while its files went? Then it stays, without them: its devices have them to send again.
   const still = library.deletesAt(now)
-  if (still && still > now) return effects.alarm(nextAlarm(library, now))
-  await effects.deleteAll()
+  // Deleted by its writer while its files went: done already.
+  if (still === null) return
+  if (still > now) return effects.alarm(nextAlarm(library, now))
+  // Deleted, and then each subscription that paid for it told to let go of it. Told first, a receipt that came
+  // while they were asked was answered as paid and the library deleted all the same, and one that couldn't be
+  // reached kept the library past its date for as long as it couldn't (the server audit of 2026-11-23). One not
+  // told keeps the id till the App Store next says a word of it (worker/notifications), or till its own date.
+  const [id, payers] = [library.id(), library.payers()]
   library.bury()
+  if (id && payers.length > 0) await effects.release?.(id, payers).catch((error: Error) => console.warn('Nib: a deleted library’s subscriptions weren’t all told', error.name))
 }
+
 
 /** Where a library's object is: Cloudflare's EU jurisdiction, or wherever libraries were made before they were kept there. */
 export type Region = 'eu' | 'before'
@@ -799,9 +1027,16 @@ export function findLibrary(library: Libraries, id: string) {
         if (there.status === 404 && ((await before.gone()).body as { gone: boolean }).gone) return { status: 410, body: { error: LIBRARY_GONE } }
         found = there.status === 404 ? eu : before
       }
-      return reach((stub) => stub.create(asker, expiresAt, subscription))
+      return reach((stub) => stub.create(asker, expiresAt, subscription, id))
     },
     revoke: (subscription: string) => both((stub) => stub.revoke(subscription)),
-    paidTo: (expiresAt: number, subscription?: string) => both((stub) => stub.paidTo(expiresAt, subscription)),
+    /**
+     * Told in both regions. True if the library is gone: deleted from one, and in neither. Not one that is only
+     * nowhere yet, as a new library is between its place being counted and its being made (worker/sync).
+     */
+    async paidTo(expiresAt: number, subscription?: string): Promise<boolean> {
+      const told = (await Promise.all([eu, before].map((stub) => stub.paidTo(expiresAt, subscription, id)))).map((answer) => answer.body as { library?: boolean; gone?: boolean })
+      return !told.some((one) => one.library) && told.some((one) => one.gone === true)
+    },
   }
 }

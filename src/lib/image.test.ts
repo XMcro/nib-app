@@ -140,6 +140,17 @@ describe('filterBodyImages', () => {
     expect(width('120')).toBeNull()
   })
 
+  // A table is drawn a column at a time: a cell spanning ten million froze the page at every opening.
+  it('keeps a table cell’s spans to whole numbers up to a hundred', () => {
+    const table = (attrs: Record<string, unknown>): JSONContent => ({ type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableHeader', attrs, content: [{ type: 'paragraph' }] }] }] }] })
+    const spans = (attrs: Record<string, unknown>) => filterBodyImages(table(attrs)).content?.[0].content?.[0].content?.[0].attrs
+    expect(spans({ colspan: 3, rowspan: 100 })).toEqual({ colspan: 3, rowspan: 100 })
+    expect(spans({ colspan: 10_000_000, rowspan: 101 })).toEqual({ colspan: 1, rowspan: 1 })
+    expect(spans({ colspan: 1e300, rowspan: 0 })).toEqual({ colspan: 1, rowspan: 1 })
+    expect(spans({ colspan: '4', rowspan: 2.5 })).toEqual({ colspan: 1, rowspan: 1 })
+    expect(spans({ colwidth: null })).toEqual({ colwidth: null })
+  })
+
   it('drops what is nested past any depth Nib writes', () => {
     let deep: JSONContent = { type: 'text', text: 'too deep' }
     for (let i = 0; i < 5000; i++) deep = { type: 'blockquote', content: [deep] }

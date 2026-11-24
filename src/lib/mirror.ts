@@ -2,7 +2,7 @@ import Dexie from 'dexie'
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
 import { db, type Item, type Revision } from '../db/db'
 import * as revisions from '../db/revisions'
-import { BackupError, buildBackup, folderPreferences, parseBackup, savedLookPreferences, putBack, serializeBackup, type BackupFile, type BackupPreferences } from './backup'
+import { BackupError, buildBackup, folderPreferences, parseBackup, savedLookPreferences, submissionPreferences, putBack, serializeBackup, type BackupFile, type BackupPreferences } from './backup'
 import { createSaveQueue } from './saveQueue'
 import { readSort } from './sort'
 import { readTheme } from './theme'
@@ -137,6 +137,9 @@ const there = (path: string) =>
  * if the database is still empty; if there is writing in it by then, the files
  * are first kept aside, under `.unrestored-<time>` names.
  */
+/** The app's copy couldn't be brought back this launch: the database may not be all the library (lib/backupFolder waits). */
+export const mirrorRestoreFailed = () => restoreFailed
+
 export async function restoreFromMirror(): Promise<boolean> {
   restoreFailed = true // until it has finished
   let restored: boolean
@@ -388,7 +391,7 @@ export function startMirror(onError: (error: unknown) => void, delay = DELAY): (
       current.epoch = epoch
       unsaved = true
     }
-    const preferences = { theme: readTheme(), sort: readSort(), ...folderPreferences(), ...savedLookPreferences() }
+    const preferences = { theme: readTheme(), sort: readSort(), ...folderPreferences(), ...savedLookPreferences(), ...submissionPreferences() }
     if (JSON.stringify(current.preferences) !== JSON.stringify(preferences)) {
       current.preferences = preferences
       unsaved = true

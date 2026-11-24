@@ -18,6 +18,9 @@ import { NAMED, THEMES, THEME_LABEL, WINTER, type Mode, type Theme } from '../li
 import type { Sync } from '../sync'
 import { describeSync } from '../sync/status'
 import { Billing } from './Billing'
+import { BackupFolderPanel } from './BackupFolderPanel'
+import { BlogPanel } from './BlogPanel'
+import { blogPlugin } from '../lib/blog'
 import { Customize } from './Customize'
 import { Goals } from './Goals'
 import { Sheet } from './Sheet'
@@ -57,7 +60,7 @@ export function Settings({
   goal: number
   onGoalChange: (goal: number) => void
   /** The daily reminder (lib/dailyReminder), where it can ring. */
-  daily?: Pick<DailyReminder, 'time' | 'change'>
+  daily?: Pick<DailyReminder, 'time' | 'change' | 'invitations' | 'changeInvitations'>
   /** Winter is among the themes once Christmas Day's present has given it (lib/rewards). */
   winter?: boolean
   canExportCurrent: boolean
@@ -81,14 +84,14 @@ export function Settings({
    * a code, or the palette's "Change sync code…" at Sync, asking. `at` makes
    * a repeat a new request.
    */
-  openTo?: { view: 'main' | 'billing' | 'sync'; at: number; changeCode?: boolean } | null
+  openTo?: { view: 'main' | 'billing' | 'sync' | 'blog'; at: number; changeCode?: boolean } | null
   /** Send feedback, in the app (components/TellUs). */
   onFeedback?: () => void
 }) {
   const [open, setOpen] = useState(false)
   // Billing gets the whole panel rather than a section of it: it is the one
   // place in Nib that takes money, and should read that way.
-  const [view, setView] = useState<'main' | 'billing' | 'sync' | 'goals' | 'customize' | 'acknowledgements'>('main')
+  const [view, setView] = useState<'main' | 'billing' | 'sync' | 'goals' | 'customize' | 'acknowledgements' | 'blog' | 'backupFolder'>('main')
   // Through Billing too: subscribing there must not lead a new device to
   // "Turn on sync", which would start a second library instead of joining.
   const [joinFirst, setJoinFirst] = useState(false)
@@ -130,6 +133,18 @@ export function Settings({
       {open && view === 'sync' && (
         <div className={panel}>
           <SyncPanel sync={sync} subscribed={subscription.active} startJoining={joinFirst} startChanging={changeFirst} onBack={() => setView('main')} onOpenBilling={() => setView('billing')} />
+        </div>
+      )}
+
+      {open && view === 'blog' && (
+        <div className={panel}>
+          <BlogPanel plus={plus} onBack={() => setView('main')} />
+        </div>
+      )}
+
+      {open && view === 'backupFolder' && (
+        <div className={panel}>
+          <BackupFolderPanel folders={folders} onBack={() => setView('main')} />
         </div>
       )}
 
@@ -189,7 +204,7 @@ export function Settings({
           </div>
 
           {/* The named themes, each shown in its own colours: its paper, its
-              ink, and its accent. Four are Nib Plus, and lead to Billing
+              ink, and its accent. Fourteen are Nib Plus, and lead to Billing
               without it. Every row as tall as the tallest: a name that wraps,
               as Purple Green does beside its lock on an iPhone, made its row
               stand taller than the rest. */}
@@ -271,7 +286,28 @@ export function Settings({
               {sync.code ? describeSync(sync.status) : 'Off'} ›
             </span>
           </button>
-          {/* Only in the app. The daily goal is free; its calendar is Nib Plus. */}
+          {/* Nib Plus, and only in the app, which sends to it (lib/blog). */}
+          {nativeApp && (
+            <button
+              // Without Plus, still the way to disconnect a blog connected with it; with none connected, to Nib Plus.
+              onClick={() => (plus ? setView('blog') : void blogPlugin.blog().then(({ site }) => setView(site ? 'blog' : 'billing'), () => setView('billing')))}
+              className="nib-tap mt-1.5 flex w-full cursor-pointer items-center gap-2 rounded-md border border-line px-2 py-1.5 text-left hover:bg-item-hover"
+            >
+              <span className="flex-1 text-[12px] font-medium">Your blog</span>
+              <span className="text-[11px] text-muted">{plus ? '›' : 'Plus ›'}</span>
+            </button>
+          )}
+          {/* Nib Plus, and only in the app, which writes there (lib/backupFolder). */}
+          {nativeApp && (
+            <button
+              onClick={() => setView(plus ? 'backupFolder' : 'billing')}
+              className="nib-tap mt-1.5 flex w-full cursor-pointer items-center gap-2 rounded-md border border-line px-2 py-1.5 text-left hover:bg-item-hover"
+            >
+              <span className="flex-1 text-[12px] font-medium">Backup to a folder</span>
+              <span className="text-[11px] text-muted">{plus ? '›' : 'Plus ›'}</span>
+            </button>
+          )}
+          {/* Only in the app. The daily goal and the year's card are free; the calendar and the stats are Nib Plus. */}
           {nativeApp && (
             <button
               onClick={() => setView('goals')}
@@ -301,8 +337,9 @@ export function Settings({
           {/* The export promise never changes, and Settings.test.tsx treats it
               as a contract. */}
           <p className="mt-2 text-[11px] leading-[1.5] text-muted">
-            Your writing never leaves this device unless you share a draft or
-            turn on sync, and Markdown export is free forever.
+            Your writing never leaves this device unless you share a draft, turn
+            on sync, send it to your blog or back it up to a folder elsewhere,
+            and Markdown export is free forever.
           </p>
 
           <button
@@ -379,7 +416,7 @@ export function Settings({
 
               <label className="flex cursor-pointer flex-col justify-center rounded-[5px] px-2 py-1 text-[12px] hover:bg-item-hover focus-within:bg-item-hover pointer-coarse:min-h-11">
                 Import notes…
-                <span className="block text-[10.5px] text-faint">Markdown, a Word document, or an export from Simplenote, Bear, Evernote, Notesnook, Obsidian, Apple Notes, Google Keep, Joplin, UpNote, Zoho Notebook, FuseBase or ColorNote</span>
+                <span className="block text-[10.5px] text-faint">Markdown, a Word document, a Fountain or Final Draft screenplay, or an export from Simplenote, Bear, Evernote, Notesnook, Obsidian, Apple Notes, Google Keep, Joplin, UpNote, Zoho Notebook, FuseBase or ColorNote</span>
                 <input
                   type="file"
                   accept={IMPORT_ACCEPT}

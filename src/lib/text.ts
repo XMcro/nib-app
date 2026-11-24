@@ -20,7 +20,8 @@ let inTheVault: ReadonlySet<string> = new Set()
 
 export const isInVault = (id: string) => inTheVault.has(id)
 
-function nodeText(node: JSONContent): string {
+/** A node's words, as the library, search and counts read them. */
+export function nodeText(node: JSONContent): string {
   if (typeof node.text === 'string') return node.text
   // A link to another note reads as that note's title, as it shows.
   if (node.type === 'noteLink') return isInVault(String(node.attrs?.id ?? '')) ? LOCKED_LINK : String(node.attrs?.title ?? '')
@@ -107,4 +108,12 @@ export function titleOf(body: JSONContent): string {
   let title = knownTitles.get(body)
   if (title === undefined) knownTitles.set(body, (title = plainText(body).split('\n').map((line) => line.trim()).find(Boolean) ?? attached(body)[0] ?? 'Untitled'))
   return title
+}
+
+/** The corkboard's (lib/manuscript, Nib Plus): a chapter's summary is one line, of at most this many characters. */
+export const SUMMARY_MAX = 200
+
+/** One line of at most SUMMARY_MAX characters: what a summary is kept as, from what's typed or arrives. Nothing left is none. */
+export function oneLine(text: string): string | null {
+  return [...text.replace(/\s+/g, ' ').trim()].slice(0, SUMMARY_MAX).join('').trim() || null
 }

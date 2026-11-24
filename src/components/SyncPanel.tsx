@@ -214,7 +214,7 @@ export function SyncPanel({
                     </button>
                     {confirm === 'change' && (
                       <p className="text-[10.5px] leading-[1.5] text-faint">
-                        Everything moves to a new library under a new code, and the old library is deleted. Your other devices stop syncing until you enter the new code on them.
+                        Everything moves to a new library under a new code, and the old library is deleted. Pictures and attached files that aren’t on this device yet are downloaded first, so none is left behind. If you use the inbox, its address stops working: turn it on again afterwards for a new one. Your other devices stop syncing until you enter the new code on them.
                       </p>
                     )}
                   </>

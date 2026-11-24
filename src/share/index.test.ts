@@ -327,3 +327,12 @@ describe('talking to the server', () => {
     await expect(revokeShare(ref())).rejects.toBeInstanceOf(ShareError)
   })
 })
+
+describe('a shared screenplay', () => {
+  it('says it is one, for the reader to set it out; nothing else does', () => {
+    const body = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'INT. HOUSE - DAY' }] }] }
+    expect(snapshot({ kind: 'page', body, screenplay: true }).screenplay).toBe(true)
+    expect('screenplay' in snapshot({ kind: 'page', body })).toBe(false)
+    expect('screenplay' in snapshot({ kind: 'note', body, screenplay: true })).toBe(false)
+  })
+})

@@ -10,6 +10,7 @@ import { isTime } from '../lib/time'
 import { asCollection, emptyCollection, mergedWith, takeIn } from '../lib/collection'
 import { asFolderSettings, mergeFolderSettings, readFolderSettings, takeInFolderSettings } from '../lib/folderSettings'
 import { asSavedLooks, mergeSavedLooks, readSavedLooks, takeInSavedLooks } from '../lib/look'
+import { asSubmissions, mergeSubmissions, readSubmissions, takeInSubmissions } from '../lib/submissions'
 import { sendFiles } from '../lib/fileQueue'
 import { letGo } from '../lib/fileUse'
 import { filesIn, filterBodyImages, originalsIn, wellFormed } from '../lib/image'
@@ -34,7 +35,7 @@ type ItemPayload = Omit<Item, 'version' | 'rev'>
  * from before counts sends none. `b`: the count of the version it was made
  * over, if any, which a Nib from before sends none of either.
  */
-type Payload = { t: 'item'; v: ItemPayload; n?: number; b?: number } | { t: 'revision'; v: Revision } | { t: 'gone'; n?: number; b?: number } | { t: 'stamps'; v: unknown } | { t: 'folders'; v: unknown } | { t: 'looks'; v: unknown }
+type Payload = { t: 'item'; v: ItemPayload; n?: number; b?: number } | { t: 'revision'; v: Revision } | { t: 'gone'; n?: number; b?: number } | { t: 'stamps'; v: unknown } | { t: 'folders'; v: unknown } | { t: 'looks'; v: unknown } | { t: 'submissions'; v: unknown }
 
 /**
  * The stamps (lib/collection), all in one record of their own. A Nib from
@@ -47,6 +48,8 @@ const STAMPS = 'collection'
 const FOLDERS = 'folders'
 /** The saved looks (lib/look), the same way. */
 const LOOKS = 'looks'
+/** The submission tracker's (lib/submissions), the same way. */
+const SUBMISSIONS = 'submissions'
 
 // A revision still inside its coalesce window may be rewritten in place, so it
 // is only sent once the window has closed. The live text travels with its item.
@@ -292,13 +295,14 @@ async function apply(record: Wire, payload: Payload | null, made: Made, strays: 
   if (payload?.t === 'stamps') return applyStamps(standing, payload.v)
   if (payload?.t === 'folders') return applyFolders(standing, payload.v)
   if (payload?.t === 'looks') return applyLooks(standing, payload.v)
+  if (payload?.t === 'submissions') return applySubmissions(standing, payload.v)
   if (payload?.t === 'item') return applyItem(standing, payload.v, made)
   return null
 }
 
 /** A record deleted on the server. `withSeal`: its delete came sealed. */
 async function applyDelete({ k, seq, known, count, uncounted, forked, n }: Standing, withSeal: boolean): Promise<string | null> {
-  if (known?.type === 'stamps' || known?.type === 'folders' || known?.type === 'looks') {
+  if (known?.type === 'stamps' || known?.type === 'folders' || known?.type === 'looks' || known?.type === 'submissions') {
     // Never deleted by a device: sent up again, merged as ever (outgoing).
     await db.syncRecords.put({ ...known, seq, deleted: true })
     return null
@@ -379,6 +383,16 @@ async function applyLooks({ k, seq }: Standing, value: unknown): Promise<null> {
   if (!there) return null
   takeInSavedLooks(there)
   await db.syncRecords.put({ k, type: 'looks', id: LOOKS, seq, sum: JSON.stringify(there) })
+  return null
+}
+
+/** The submissions (lib/submissions) from another device. */
+async function applySubmissions({ k, seq }: Standing, value: unknown): Promise<null> {
+  // Merged with this device's, submission by submission; what's newer here goes up (outgoing).
+  const there = asSubmissions(value)
+  if (!there) return null
+  takeInSubmissions(there)
+  await db.syncRecords.put({ k, type: 'submissions', id: SUBMISSIONS, seq, sum: JSON.stringify(there) })
   return null
 }
 
@@ -549,6 +563,9 @@ async function* outgoing(keys: SyncKeys, now: number, known: SyncRecord[], docum
     if (owner && isLocked(owner)) continue
     const synced = byPair.get(pairKey('revision', id))
     const k = synced?.k ?? (await recordKey(keys, 'revision', id))
+    // The originals it names follow it too, as a document's do: one that only a past version names was never sent
+    // to a library filled from here (changeLibrary), which then held the version and not its picture.
+    sendFiles(filesIn(revision.body).map((file) => file.id))
     yield {
       wire: { k, b: synced?.seq ?? 0, p: await seal(keys, k, { t: 'revision', v: revision }) },
       record: { k, type: 'revision', id, seq: 0 },
@@ -585,10 +602,23 @@ async function* outgoing(keys: SyncKeys, now: number, known: SyncRecord[], docum
     yield { wire: { k, b: sentLooks?.seq ?? 0, p: await seal(keys, k, { t: 'looks', v: looks }) }, record: { k, type: 'looks', id: LOOKS, seq: 0, sum: looksSum } }
   }
 
+  // The submissions, the same way.
+  const sentSubmissions = byPair.get(pairKey('submissions', SUBMISSIONS))
+  const submissionsOnServer = sentSubmissions?.sum ? asSubmissions(JSON.parse(sentSubmissions.sum)) : undefined
+  const submissions = submissionsOnServer ? mergeSubmissions(readSubmissions(), submissionsOnServer) : readSubmissions()
+  const submissionsSum = JSON.stringify(submissions)
+  if (Object.keys(submissions).length > 0 && (!sentSubmissions || sentSubmissions.deleted || sentSubmissions.sum !== submissionsSum)) {
+    const k = sentSubmissions?.k ?? (await recordKey(keys, 'submissions', SUBMISSIONS))
+    yield {
+      wire: { k, b: sentSubmissions?.seq ?? 0, p: await seal(keys, k, { t: 'submissions', v: submissions }) },
+      record: { k, type: 'submissions', id: SUBMISSIONS, seq: 0, sum: submissionsSum },
+    }
+  }
+
   // Not read through, none here was seen: that's not to say any is gone.
   if (!documents) return
   for (const record of known) {
-    if (record.deleted || record.type === 'stamps' || record.type === 'folders' || record.type === 'looks') continue
+    if (record.deleted || record.type === 'stamps' || record.type === 'folders' || record.type === 'looks' || record.type === 'submissions') continue
     if (record.type === 'item' ? localItems.has(record.id) : localRevisions.has(record.id)) continue
     yield gone(record)
   }
@@ -684,7 +714,7 @@ export async function syncOnce(keys: SyncKeys, api: Api, now = Date.now(), uncha
   for (let round = 0; round < MAX_ROUNDS; round++) {
     for (const id of await pull(keys, api, made, started)) changed.add(id)
     const documents = !unchanged || made.took
-    const known = documents ? await db.syncRecords.toArray() : await db.syncRecords.where('[type+id]').anyOf([['stamps', STAMPS], ['folders', FOLDERS], ['looks', LOOKS]]).toArray()
+    const known = documents ? await db.syncRecords.toArray() : await db.syncRecords.where('[type+id]').anyOf([['stamps', STAMPS], ['folders', FOLDERS], ['looks', LOOKS], ['submissions', SUBMISSIONS]]).toArray()
     const waits = { settling: false }
     const result = await push(api, outgoing(keys, now, known, documents, waits), started)
     full ||= result.full

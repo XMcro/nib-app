@@ -34,6 +34,8 @@ const subscribe = (listener: () => void) => {
 
 /** Whether the nib is in its corner. */
 export const useBuddy = () => useSyncExternalStore(subscribe, () => read() === 'on')
+/** Whether it's in its corner now, read once. */
+export const buddyOn = () => read() === 'on'
 
 /** Asked already, whatever the answer, or set in Settings: not offered again. */
 export const buddyAsked = () => read() !== null

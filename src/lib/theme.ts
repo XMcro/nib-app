@@ -8,23 +8,33 @@ export type Mode = 'light' | 'dark' | 'system'
  * Blender's theme directory (extensions.blender.org/themes): the paper, ink
  * and accent of each theme's text editor, with the rest worked out from them.
  * `dark` puts the `.dark` class on too, for what is drawn differently on a
- * dark page. Four are Nib Plus, the last in the colours of its own badge
- * (assets/plus-badge.png). Winter, Nib's own, is earned instead: it's
+ * dark page. Three are free: Midnight Blue, Clean Blue and Cream Soda. The
+ * other fourteen are Nib Plus (four of them free until 2026-11-20, moved for
+ * everyone): seven of Blender's; Nib Plus, in the colours of its own badge
+ * (assets/plus-badge.png); and six of Nib's own, three light and three dark,
+ * each light one with a dark partner (Vellum and Ember, Sage and Tide, Lilac
+ * and Merlot). Winter, Nib's own too, is earned instead: it's
  * offered once Christmas Day's present (lib/rewards) has been opened, and
  * kept after, Plus or not.
  */
 export const NAMED = [
   { id: 'midnight-blue', label: 'Midnight Blue', dark: true, plus: false, shell: '#1c232d' },
-  { id: 'gruvbox-dark', label: 'Gruvbox Dark', dark: true, plus: false, shell: '#3c3836' },
-  { id: 'green-olive', label: 'Green Olive', dark: true, plus: false, shell: '#1e1e1e' },
   { id: 'clean-blue', label: 'Clean Blue', dark: false, plus: false, shell: '#e8ebf0' },
-  { id: 'gruvbox-light', label: 'Gruvbox Light', dark: false, plus: false, shell: '#ebdbb2' },
-  { id: 'pastel-pink', label: 'Pastel Pink', dark: false, plus: false, shell: '#f7c4d7' },
   { id: 'cream-soda', label: 'Cream Soda', dark: false, plus: false, shell: '#e0d9ca' },
+  { id: 'gruvbox-dark', label: 'Gruvbox Dark', dark: true, plus: true, shell: '#3c3836' },
+  { id: 'green-olive', label: 'Green Olive', dark: true, plus: true, shell: '#1e1e1e' },
+  { id: 'gruvbox-light', label: 'Gruvbox Light', dark: false, plus: true, shell: '#ebdbb2' },
+  { id: 'pastel-pink', label: 'Pastel Pink', dark: false, plus: true, shell: '#f7c4d7' },
   { id: 'purple-green', label: 'Purple Green', dark: true, plus: true, shell: '#1b1b1b' },
   { id: 'alien-pink', label: 'Alien Pink', dark: true, plus: true, shell: '#121f2c' },
   { id: 'drcl', label: 'drcl', dark: true, plus: true, shell: '#303042' },
   { id: 'nib-plus', label: 'Nib Plus', dark: true, plus: true, shell: '#222227' },
+  { id: 'vellum', label: 'Vellum', dark: false, plus: true, shell: '#ece3d4' },
+  { id: 'sage', label: 'Sage', dark: false, plus: true, shell: '#e2e9de' },
+  { id: 'lilac', label: 'Lilac', dark: false, plus: true, shell: '#e9e4f1' },
+  { id: 'ember', label: 'Ember', dark: true, plus: true, shell: '#241d19' },
+  { id: 'tide', label: 'Tide', dark: true, plus: true, shell: '#142427' },
+  { id: 'merlot', label: 'Merlot', dark: true, plus: true, shell: '#261a1d' },
   { id: 'winter', label: 'Winter', dark: false, plus: false, shell: '#e1e9f0' },
 ] as const
 

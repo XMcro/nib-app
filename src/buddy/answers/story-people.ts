@@ -48,8 +48,8 @@ export const STORY_PEOPLE: Answer[] = [
     topic: 'story',
     q: 'How do I keep track of my characters?',
     also: ['character list', 'remembering eye colour and ages', 'character bible'],
-    a: 'Keep a note for each one with the facts you’ll forget: age, eye colour, where they grew up, who they’re related to, the name of the dog. Add to it as you write, not before; the draft decides.\n\nIn Nib, keep these notes in the book’s folder, where they stay out of the Manuscript, and link a name to its note with [[ so it’s a tap away.\n\nOnce there are more than a handful of people, a list of who appears in each chapter helps too.',
-    see: ['nib-book-research', 'nib-note-link', 'nib-book-find'],
+    a: 'Keep a note for each one with the facts you’ll forget: age, eye colour, where they grew up, who they’re related to, the name of the dog. Add to it as you write, not before; the draft decides.\n\nIn Nib, keep these notes in the book’s folder, where they stay out of the Manuscript, and link a name to its note with [[ so it’s a tap away.\n\nOnce there are more than a handful of people, a list of who appears in each chapter helps too: with Nib Plus, People and places in the book’s Manuscript keeps one.',
+    see: ['nib-book-research', 'nib-note-link', 'nib-book-find', 'nib-cast'],
   },
   {
     id: 'story-protagonist',
@@ -698,7 +698,7 @@ export const STORY_PEOPLE: Answer[] = [
     topic: 'story',
     q: 'How do I test my dialogue?',
     also: ['read dialogue aloud', 'does my dialogue work', 'listen to my dialogue'],
-    a: 'Listen to it. Stumbles, lines no one would say, and speeches that go on too long all show up at once. In Nib, choose Read aloud in Commands and listen to the scene in your device’s voice.\n\nThen cover the names and see whether you can still tell who’s talking.\n\nOne more test: take a line out and read the exchange again. If nothing is lost, leave it out.',
+    a: 'Listen to it. Stumbles, lines no one would say, and speeches that go on too long all show up at once. In Nib, with Nib Plus, choose Read aloud in Commands and listen to the scene in your device’s voice. Without it, your device can read the screen to you: on an iPhone or iPad, turn on Speak Screen in Settings → Accessibility → Spoken Content.\n\nThen cover the names and see whether you can still tell who’s talking.\n\nOne more test: take a line out and read the exchange again. If nothing is lost, leave it out.',
     see: ['nib-read-aloud', 'story-character-voice'],
   },
   {

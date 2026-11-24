@@ -52,6 +52,19 @@ vi.mock('./sync', async (importOriginal) => {
   }
 })
 
+// Plus off, as in a browser, unless a test turns it on: what moved to Plus is tested with it (Phase 10).
+const plusOn = vi.hoisted(() => ({ active: false }))
+vi.mock('./lib/plus', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./lib/plus')>()
+  return {
+    ...real,
+    usePlus: (): ReturnType<typeof real.usePlus> => {
+      const [entitlement, set, known] = real.usePlus()
+      return plusOn.active ? [{ ...entitlement, active: true }, set, true] : [entitlement, set, known]
+    },
+  }
+})
+
 const { App } = await import('./App')
 const { db } = await import('./db/db')
 const items = await import('./db/items')
@@ -82,6 +95,7 @@ function hide() {
 }
 
 beforeEach(async () => {
+  plusOn.active = false
   await db.items.clear()
   await db.revisions.clear()
   replaceFolderSettings({})
@@ -247,8 +261,30 @@ describe('App conflict notice', () => {
     // the first version below it — which is what the explicit revision stamps
     // guarantee.
     await user.click(within(screen.getByRole('list', { name: 'Versions' })).getAllByRole('button')[0])
-    expect((await screen.findByText('THEIRS')).tagName).toBe('DEL')
+    // Without Plus, as it was, to restore whole (compared with now is Plus's, Phase 10).
+    expect((await screen.findByText('THEIRS')).tagName).toBe('P')
     expect(screen.getByText('Restore this whole version')).toBeTruthy()
+  })
+})
+
+// Moved to Plus 2026-11-20, for everyone (Phase 10): in a browser, where Plus isn't sold, the row is there only with it.
+describe('App notes to self and TKs', () => {
+  it('lists them from Commands with Plus, and not without', async () => {
+    await items.create('note', bodyOf('A NOTE'))
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByText('A NOTE'))
+    await user.keyboard(`{${MOD}>}k{/${MOD}}`)
+    await screen.findByText('Version history')
+    expect(screen.queryByText('Notes to self and TKs')).toBeNull()
+    await user.keyboard('{Escape}')
+    cleanup()
+
+    plusOn.active = true
+    render(<App />)
+    await user.click(await screen.findByText('A NOTE'))
+    await user.keyboard(`{${MOD}>}k{/${MOD}}`)
+    expect(await screen.findByText('Notes to self and TKs')).toBeTruthy()
   })
 })
 
@@ -639,6 +675,19 @@ describe('App leaving the screen', () => {
     expect(textOf((await vault.unseal('mine', mine.vault!))!)).toBe('MINE!')
   })
 
+  // Shown through sync, the text came up with the sealed screen still over it, until the note was chosen again.
+  it('shows a note unlocked on another device, in place of its locked screen', async () => {
+    await openLocked()
+    hide()
+    expect(await screen.findByText('This is locked in the vault.')).toBeTruthy()
+    await act(async () => {
+      await db.items.update('mine', { vault: null, body: bodyOf('OPENED THERE'), version: (await items.get('mine'))!.version + 1 })
+    })
+    act(() => synced.applied!(['mine'], 0))
+    await waitFor(() => expect(screen.getByTestId<HTMLTextAreaElement>('editor').value).toBe('OPENED THERE'))
+    expect(screen.queryByText('This is locked in the vault.')).toBeNull()
+  })
+
   it('leaves the vault open when Nib comes back to the front', async () => {
     await openLocked()
     act(() => void document.dispatchEvent(new Event('visibilitychange')))
@@ -928,6 +977,27 @@ describe('App templates', () => {
     expect(await screen.findByText('Nib Plus is sold in the Nib app for iPhone, iPad and Mac.')).toBeTruthy()
   })
 
+  it('asks for Plus to start a screenplay from a template, as New screenplay does, and starts it with Plus', async () => {
+    await items.create('page', bodyOf('INT. HOUSE - DAY'), { template: true, screenplay: true })
+    const user = userEvent.setup()
+    render(<App />)
+    await waitFor(() => expect(chip(/^Templates/)).toBeTruthy())
+    await user.click(chip(/^Templates/)!)
+    await user.click(within(document.querySelector<HTMLElement>('.nib-library')!).getByRole('tab', { name: 'Pages' }))
+    await user.click(await screen.findByRole('button', { name: /^Use / }))
+    expect(await screen.findByText('Nib Plus is sold in the Nib app for iPhone, iPad and Mac.')).toBeTruthy()
+    expect(await items.list('page')).toEqual([])
+    cleanup()
+    plusOn.active = true
+    render(<App />)
+    await waitFor(() => expect(chip(/^Templates/)).toBeTruthy())
+    await user.click(chip(/^Templates/)!)
+    await user.click(within(document.querySelector<HTMLElement>('.nib-library')!).getByRole('tab', { name: 'Pages' }))
+    await user.click(await screen.findByRole('button', { name: /^Use / }))
+    await waitFor(async () => expect((await items.list('page')).map((item) => item.screenplay)).toEqual([true]))
+    plusOn.active = false
+  })
+
   it('starts a new note in a folder from the folder’s template, given in Edit, and a page there blank', async () => {
     const template = await items.create('note', bodyOf('SCENE'), { template: true })
     await items.create('note', bodyOf('OLD SCENE'), { folder: 'Novel' })
@@ -1103,6 +1173,8 @@ describe('App revision restore', () => {
     const second = (body: JSONContent) => body.content?.[1]?.content?.[0]?.text
     const id = await items.create('note', two('KEEP', 'The boats came in early.'))
     await db.revisions.add({ id: crypto.randomUUID(), itemId: id, body: two('KEEP', 'The boats came in late.'), createdAt: Date.now() - COALESCE_MS * 2 })
+    // Bringing back one paragraph is Plus's (Phase 10).
+    plusOn.active = true
 
     const user = userEvent.setup()
     render(<App />)

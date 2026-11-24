@@ -155,14 +155,18 @@ describe('Library', () => {
 
   // So a subscription can count, and cut off, the libraries it pays for. One
   // made before this has none until its next renewal, and syncs meanwhile.
-  it('keeps which subscription pays for it, and says so when wiped', () => {
+  it('keeps which subscriptions pay for it, and says so when wiped: every one, not only the last', () => {
     const library = new Library(sqlite())
     library.create(AUTH, NOW + 86_400_000, NOW, 'subscription-a')
-    expect(library.wipe(AUTH, NOW)).toBe('subscription-a')
+    expect(library.wipe(AUTH, NOW)).toEqual(['subscription-a'])
     const older = entitled()
     expect(older.status(AUTH, NOW).entitled).toBe(true)
     older.entitle(AUTH, NOW + 2 * 86_400_000, NOW, 'subscription-b')
-    expect(older.wipe(AUTH, NOW)).toBe('subscription-b')
+    expect(older.wipe(AUTH, NOW)).toEqual(['subscription-b'])
+    const shared = new Library(sqlite())
+    shared.create(AUTH, NOW + 86_400_000, NOW, 'subscription-a')
+    shared.entitle(AUTH, NOW + 2 * 86_400_000, NOW, 'subscription-b')
+    expect(shared.wipe(AUTH, NOW)).toEqual(['subscription-a', 'subscription-b'])
   })
 
   it('stops syncing at once when its subscription is refunded', () => {
@@ -327,6 +331,51 @@ describe('Library letting go of old versions', () => {
   })
 })
 
+// Letting go of history needed Plus, so a lapsed library kept every version it had, past the 90 days the policy
+// says, till it was itself deleted (the server audit of 2026-11-23).
+describe('a lapsed library’s history', () => {
+  it('is let go of when a device asks, as a file is taken off and an inbox ended without Plus', () => {
+    const library = new Library(sqlite())
+    library.create(AUTH, NOW + 86_400_000, NOW)
+    library.push(AUTH, [{ k: 'K'.repeat(43), p: 'AAAA' }], NOW)
+    const lapsed = NOW + 60 * 86_400_000
+    expect(() => library.changes(AUTH, 0, lapsed)).toThrow(/not active/)
+    expect(() => library.push(AUTH, [{ k: 'L'.repeat(43), p: 'AAAA' }], lapsed)).toThrow(/not active/)
+    expect(library.expire(AUTH, ['K'.repeat(43)], lapsed)).toEqual(['K'.repeat(43)])
+    // And only by the library's code.
+    expect(() => library.expire('another code', ['K'.repeat(43)], lapsed)).toThrow()
+  })
+})
+
+// The server audit of 2026-11-23.
+describe('a library’s inbox, its address changed', () => {
+  const DAY = 86_400_000
+  it('starts its day afresh at the new address: the old one’s count doesn’t stand against it', () => {
+    const library = new Library(sqlite())
+    library.create(AUTH, NOW + 30 * DAY, NOW)
+    library.setInbox(AUTH, 'K', 'a'.repeat(64), 'kept', NOW)
+    for (let n = 0; n < 200; n++) library.addPost('a'.repeat(64), 'p', NOW)
+    library.tookPosts(AUTH, Array.from({ length: 200 }, (_, n) => n + 1), NOW)
+    expect(() => library.inboxFor('a'.repeat(64), NOW)).toThrow(/all it takes in a day/)
+    // The same address set again (its key changed, say) is the same inbox, and the same day.
+    library.setInbox(AUTH, 'K2', 'a'.repeat(64), 'kept', NOW)
+    expect(() => library.inboxFor('a'.repeat(64), NOW)).toThrow(/all it takes in a day/)
+    library.setInbox(AUTH, 'K2', 'b'.repeat(64), 'kept', NOW)
+    expect(library.inboxFor('b'.repeat(64), NOW)).toBe('K2')
+  })
+
+  // Not the hash of its address's secret: setting an inbox asks for it, so told here, the code alone could keep
+  // the writer's address and change only the key posts are sealed with (the server audit of 2026-11-23).
+  it('tells a device the key it seals with, with what the devices keep, and never its address’s hash', () => {
+    const library = new Library(sqlite())
+    library.create(AUTH, NOW + 30 * DAY, NOW)
+    expect(library.inbox(AUTH, NOW)).toEqual({ on: false, posts: [], more: false })
+    library.setInbox(AUTH, 'K', 'a'.repeat(64), 'kept', NOW)
+    expect(library.inbox(AUTH, NOW)).toEqual({ on: true, kept: 'kept', key: 'K', posts: [], more: false })
+    expect(JSON.stringify(library.inbox(AUTH, NOW))).not.toContain('a'.repeat(64))
+  })
+})
+
 // Security finding 12 of the 8 November audit: a lapsed library was kept for ever, and could have no one left who could delete it.
 describe('a library that has lapsed', () => {
   const DAY = 86_400_000
@@ -335,25 +384,28 @@ describe('a library that has lapsed', () => {
     date.setUTCMonth(date.getUTCMonth() + KEPT_MONTHS)
     return date.getTime()
   }
-  /** A real library, its alarm and its clock the test's, and what the object's deleteAll would do. */
+  /** A real library, its alarm and its clock the test's. `deleted`: down to the mark that it was here. */
   function object(expires = NOW + 30 * DAY) {
     const sql = sqlite()
     const library = new Library(sql)
     const clock = { now: NOW }
-    const state = { alarm: null as number | null, deleted: false }
-    const files = memoryFiles()
-    const effects: LibraryEffects = {
-      alarm: async (at) => void (state.alarm = at),
-      deleteAll: async () => {
-        for (const table of ['meta', 'records', 'chunks', 'files', 'inbox', 'paid', 'taken']) sql.run(`DROP TABLE ${table}`)
-        state.deleted = true
+    const state = {
+      alarm: null as number | null,
+      get deleted() {
+        return library.gone()
       },
+    }
+    const files = memoryFiles()
+    const released: [string, string[]][] = []
+    const effects: LibraryEffects = {
+      release: async (id, subscriptions) => void released.push([id, subscriptions]),
+      alarm: async (at) => void (state.alarm = at),
       home: 'its-home',
       deleteFiles: () => emptyFiles(files, 'its-home'),
     }
     const requests = libraryRequests(library, () => clock.now, effects)
     const retire = () => retireLibrary(library, clock.now, effects)
-    return { sql, library, clock, state, files, requests, retire, create: () => requests.create(AUTH, expires, 'subscription-a'), expires }
+    return { sql, library, clock, state, files, requests, retire, released, create: () => requests.create(AUTH, expires, 'subscription-a'), expires }
   }
 
   it('is due to be deleted 12 months past what was paid and its grace', async () => {
@@ -424,6 +476,165 @@ describe('a library that has lapsed', () => {
     expect(library.status(AUTH, clock.now).expiresAt).toBe(0)
     await retire()
     expect(state.deleted).toBe(false)
+  })
+
+  // With another subscription's old receipt on record (a second Apple ID in the house, long stopped), a refund put
+  // the library's paid date back to that one's, perhaps years past, and the twelve months counted from there: its
+  // alarm fell due in the past, and it was deleted that moment, files and all, with no later purchase able to
+  // bring it back (the server audit of 2026-11-23).
+  it('counts a refund from when it came though another subscription paid long before', async () => {
+    const { requests, state, clock, retire } = object()
+    clock.now = NOW - 500 * DAY
+    await requests.create(AUTH, NOW - 470 * DAY, 'subscription-a')
+    await requests.entitle(AUTH, NOW + 30 * DAY, 'subscription-b')
+    clock.now = NOW
+    await requests.revoke('subscription-b')
+    expect(state.alarm).toBe(yearOn(NOW))
+    await retire()
+    expect(state.deleted).toBe(false)
+    // And bought again the day after, it syncs.
+    clock.now = NOW + DAY
+    expect((await requests.entitle(AUTH, NOW + 31 * DAY, 'subscription-b')).status).toBe(200)
+    expect((await requests.changes(AUTH, 0)).status).toBe(200)
+    expect(state.alarm).toBe(yearOn(NOW + 31 * DAY))
+  })
+
+  it('still counts from what another has paid to, when that is later than the refund', async () => {
+    const { requests, state, clock } = object()
+    await requests.create(AUTH, NOW + 60 * DAY, 'subscription-a')
+    await requests.entitle(AUTH, NOW + 30 * DAY, 'subscription-b')
+    clock.now = NOW + DAY
+    await requests.revoke('subscription-b')
+    expect(state.alarm).toBe(yearOn(NOW + 60 * DAY))
+  })
+
+  // Wiped, its emptied tables stayed (the server audit of 2026-11-23).
+  it('deleted by its writer, keeps the mark that it was here alone, and is never made again', async () => {
+    const { create, requests, state, sql } = object()
+    await create()
+    await requests.push(AUTH, [{ k: 'K'.repeat(43), p: 'AAAA' }])
+    expect((await requests.wipe(AUTH)).body).toEqual({ wiped: true, subscriptions: ['subscription-a'] })
+    expect(state.deleted).toBe(true)
+    expect(sql.all("SELECT name FROM sqlite_master WHERE type = 'table'").map((row) => row.name)).toEqual(['meta'])
+    expect(state.alarm).toBeNull()
+    expect((await requests.create(AUTH, NOW + 30 * DAY, 'subscription-a')).status).toBe(410)
+    expect((await requests.changes(AUTH, 0)).status).toBe(404)
+  })
+
+  // Its storage was deleted, and the mark put back after: two steps, with a moment between them when a new library
+  // could be made under the old id, which its old inbox address still names (found checking the fix, 2026-11-23).
+  it('deleted by its writer, is marked in the same step its tables go, and the mark is all that’s left of it', async () => {
+    const { create, requests, sql, library } = object()
+    await create()
+    await requests.setInbox(AUTH, 'K', 'a'.repeat(64), 'kept')
+    let steps = 0
+    const real = sql.transaction
+    sql.transaction = (fn) => (steps++, real(fn))
+    expect((await requests.wipe(AUTH)).status).toBe(200)
+    expect(steps).toBe(1)
+    expect(sql.all('SELECT k, v FROM meta')).toEqual([{ k: 'gone', v: 1 }])
+    expect(library.leftover()).toBe(false)
+    // Woken again, the same.
+    expect((await libraryRequests(new Library(sql)).create(AUTH, NOW + 30 * DAY, 'subscription-a')).status).toBe(410)
+  })
+
+  // Its tables go with it now, and what came back to one after waiting found none: the second of two "Delete
+  // everything" at once was answered with an error, where it had been told there's no library (found checking the fix, 2026-11-23).
+  it('asked to delete everything twice at once, deletes once and tells the other there’s no library', async () => {
+    const { library, clock, state, files } = object()
+    const effects = {
+      alarm: async (at: number | null) => void (state.alarm = at),
+      home: 'its-home',
+      // As the file store answers: after a moment.
+      deleteFiles: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        await emptyFiles(files, 'its-home')
+      },
+    }
+    const requests = libraryRequests(library, () => clock.now, effects)
+    await requests.create(AUTH, NOW + 30 * DAY, 'subscription-a')
+    const answers = await Promise.all([requests.wipe(AUTH), requests.wipe(AUTH)])
+    expect(answers.map((answer) => answer.status).sort()).toEqual([200, 404])
+    expect(library.gone()).toBe(true)
+    // And what a signed request's signature is kept in is gone with it: asked, nothing.
+    expect(library.taken('a-signature', 'a-request', clock.now)).toBe(false)
+  })
+
+  it('is left alone by its alarm when its writer deletes it while the alarm deletes its files', async () => {
+    const { sql, library, clock, state, expires } = object()
+    const alarms: (number | null)[] = []
+    const effects: LibraryEffects = {
+      alarm: async (at) => void alarms.push(at),
+      home: 'its-home',
+      deleteFiles: async () => void library.wipe(AUTH, clock.now),
+    }
+    await libraryRequests(library, () => clock.now, effects).create(AUTH, expires, 'subscription-a')
+    clock.now = yearOn(expires)
+    alarms.length = 0
+    let steps = 0
+    const real = sql.transaction
+    sql.transaction = (fn) => (steps++, real(fn))
+    await retireLibrary(library, clock.now, effects)
+    expect(library.gone()).toBe(true)
+    // Deleted the once, by its writer: the alarm found it done, and wrote nothing more.
+    expect(steps).toBe(1)
+    expect(alarms).toEqual([])
+    expect(state.alarm).toBeNull()
+  })
+
+  // Asked first whether the code is right (worker/sync), a lapsed library was refused what it takes without Plus.
+  it('says whether a code is its own without Plus, when asked so, as for what only lets go', async () => {
+    const { create, requests, clock, expires } = object()
+    await create()
+    clock.now = expires + GRACE_MS + DAY
+    expect((await requests.authorise(AUTH)).status).toBe(402)
+    expect((await requests.authorise(AUTH, false)).status).toBe(200)
+    expect((await requests.authorise('b'.repeat(64), false)).status).toBe(401)
+  })
+
+  // Deleted at its date, it told no subscription: each went on listing its id (the server audit of 2026-11-23).
+  it('is let go of by every subscription that paid for it, when it’s deleted', async () => {
+    const { requests, clock, state, retire, released } = object()
+    await requests.create(AUTH, NOW + 30 * DAY, 'subscription-a', 'the-library-id')
+    await requests.entitle(AUTH, NOW + 20 * DAY, 'subscription-b', 'the-library-id')
+    clock.now = state.alarm! - 1
+    await retire()
+    expect(released).toEqual([])
+    clock.now = state.alarm!
+    await retire()
+    expect(state.deleted).toBe(true)
+    expect(released).toEqual([['the-library-id', ['subscription-a', 'subscription-b']]])
+  })
+
+  // Told first, a subscription that couldn't be reached kept the library past its date; and a receipt that came
+  // while they were told was answered as paid, and the library deleted all the same (the server audit of 2026-11-23).
+  it('is deleted before they’re told, and whether or not they can be', async () => {
+    const { library, clock, state, files } = object()
+    const told: boolean[] = []
+    const effects: LibraryEffects = {
+      alarm: async (at) => void (state.alarm = at),
+      home: 'its-home',
+      deleteFiles: () => emptyFiles(files, 'its-home'),
+      release: async () => {
+        told.push(library.gone())
+        throw new Error('The subscription is away')
+      },
+    }
+    await libraryRequests(library, () => clock.now, effects).create(AUTH, NOW + 30 * DAY, 'subscription-a', 'the-library-id')
+    clock.now = state.alarm!
+    await retireLibrary(library, clock.now, effects)
+    expect(told).toEqual([true])
+    expect(state.deleted).toBe(true)
+    expect(library.gone()).toBe(true)
+  })
+
+  it('told of its id by the App Store’s word of a renewal too', async () => {
+    const { create, requests, clock, state, retire, released } = object()
+    await create()
+    await requests.paidTo(NOW + 60 * DAY, 'subscription-a', 'the-library-id')
+    clock.now = state.alarm!
+    await retire()
+    expect(released).toEqual([['the-library-id', ['subscription-a']]])
   })
 
   it('counts a refund from before this was kept from the first time it’s seen, and only once', async () => {

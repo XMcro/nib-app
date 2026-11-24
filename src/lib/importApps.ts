@@ -6,6 +6,8 @@ import { BACKUP_KIND } from './backup'
 import { COLORNOTE_AUTOMATIC, isColornote, openColornote } from './colornote'
 import { readDocx, type Left } from './docx'
 import { DOC_BUDGET, MAX_BYTES, allowedImageSrc, withoutAbout } from './image'
+import { fromFdx } from './fdx'
+import { fromFountain } from './fountain'
 import { htmlToBody, isNibExport, markdownToBody, markdownToHtml, parseImport } from './import'
 import { md5 } from './md5'
 import { tarEntries } from './tar'
@@ -34,6 +36,8 @@ export type Imported = {
   filing?: string
   /** From an Obsidian vault, where a line's `^id` is never part of its words (lib/links). */
   vault?: boolean
+  /** A screenplay, from a .fountain or Final Draft file: laid out as one with Nib Plus (fileActions). */
+  screenplay?: true
 }
 
 /** `skipped` holds short reasons a person can read, one per line. */
@@ -54,6 +58,8 @@ export const IMPORT_ACCEPT = [
   '.bear2bk',
   '.textpack',
   '.docx',
+  '.fountain',
+  '.fdx',
   'text/markdown',
   'text/plain',
   'text/html',
@@ -177,7 +183,12 @@ export async function readImportFile(file: File, fallbackKind: Kind, ask?: AskPa
       if (opened && extension === 'jex') addJex(run, opened)
       else if (opened) addArchive(run, opened, false)
     } else if (extension === 'backup') await addColornote(run, new Uint8Array(await file.arrayBuffer()), file.name, ask)
-    else run.skipped.push(`${file.name}: not a format Nib reads`)
+    else if (extension === 'fountain') addScript(run, fromFountain(await file.text()))
+    else if (extension === 'fdx') {
+      const body = fromFdx(await file.text())
+      if (body) addScript(run, body)
+      else run.skipped.push(`${file.name}: not a Final Draft script`)
+    } else run.skipped.push(`${file.name}: not a format Nib reads`)
   } catch {
     run.skipped.push(`${file.name}: couldn’t be read`)
   }
@@ -294,6 +305,13 @@ function addBody(run: Run, body: JSONContent, kind: Kind, meta: Meta) {
     filing: meta.filing,
     vault: meta.vault,
   })
+}
+
+/** A screenplay (lib/fountain, lib/fdx): a page, its lines as they are. */
+function addScript(run: Run, body: JSONContent) {
+  if (!plainText(body).trim()) count(run, 'empty')
+  else if (tooLong(body)) count(run, 'unreadable')
+  else run.documents.push({ kind: 'page', body, screenplay: true })
 }
 
 const BLOCKS = 'div, p, ul, ol, table, h1, h2, h3, h4, h5, h6, blockquote, pre, hr'
@@ -1635,17 +1653,16 @@ function checkLayout(bytes: Uint8Array, name: string): number[] {
     if (bytes.length - end > 22 + 0xffff) throw new Refused(`${name}: couldn’t be opened`)
     end--
   }
-  // Read where fflate reads: this record's count at +8, and a ZIP64 record's
-  // count and directory instead when there is one. Reading others, a
-  // harmless directory could pass here while fflate unpacked another.
-  let count = view.getUint16(end + 8, true)
-  let directory = view.getUint32(end + 16, true)
+  // Read where fflate reads: this record's count at +8. A ZIP64 record, where
+  // fflate finds one, it reads instead, and each file's size and place from
+  // fields of its own: a harmless directory passed here while fflate unpacked
+  // another (a record cut four bytes short was enough for this check to look
+  // past it). So by fflate's own test for one, it's refused.
+  const count = view.getUint16(end + 8, true)
+  const directory = view.getUint32(end + 16, true)
   if (end >= 20 && view.getUint32(end - 20, true) === 0x07064b50) {
     const record = view.getUint32(end - 12, true)
-    if (record + 56 <= bytes.length && view.getUint32(record, true) === 0x06064b50) {
-      count = view.getUint32(record + 32, true)
-      directory = view.getUint32(record + 48, true)
-    }
+    if (record + 4 <= bytes.length && view.getUint32(record, true) === 0x06064b50) throw new Refused(`${name}: couldn’t be opened`)
   }
   if (count > MAX_ENTRIES) throw tooMany(name)
   const spans: [start: number, end: number][] = []

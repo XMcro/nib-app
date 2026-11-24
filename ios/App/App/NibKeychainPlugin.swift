@@ -55,6 +55,8 @@ public class NibKeychainPlugin: CAPPlugin, CAPBridgedPlugin {
         guard !earlier.contains(where: { files.fileExists(atPath: $0.path) }) else { return }
         SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
         SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: vaultService] as CFDictionary)
+        // And the blog's key (NibBlogPlugin), so the next person to install Nib can't post to it.
+        SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: NibBlogPlugin.service] as CFDictionary)
     }
 
     private func query(_ account: String, _ call: CAPPluginCall) -> [String: Any] {
@@ -143,6 +145,8 @@ public class NibKeychainPlugin: CAPPlugin, CAPBridgedPlugin {
         // on another device, and gone with the device's own passcode.
         var error: Unmanaged<CFError>?
         guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, .biometryCurrentSet, &error) else {
+            // The error is this call's to let go of.
+            error?.release()
             return call.reject("Couldn’t protect it with Face ID or Touch ID.")
         }
         SecItemDelete(vaultQuery as CFDictionary)
@@ -150,7 +154,11 @@ public class NibKeychainPlugin: CAPPlugin, CAPBridgedPlugin {
         item[kSecValueData as String] = Data(passcode.utf8)
         item[kSecAttrAccessControl as String] = access
         let status = SecItemAdd(item as CFDictionary, nil)
-        guard status == errSecSuccess else { return call.reject("Keychain write failed (\(status)).") }
+        guard status == errSecSuccess else {
+            // The one kept before went just above: none is kept now, and it isn't said that one is.
+            UserDefaults.standard.set(false, forKey: Self.vaultKept)
+            return call.reject("Keychain write failed (\(status)).")
+        }
         UserDefaults.standard.set(true, forKey: Self.vaultKept)
         call.resolve()
     }
@@ -179,7 +187,9 @@ public class NibKeychainPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func vaultForget(_ call: CAPPluginCall) {
-        SecItemDelete(vaultQuery as CFDictionary)
+        // Forgotten only if it's gone: one the Keychain wouldn't delete is still kept, and still said to be.
+        let status = SecItemDelete(vaultQuery as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { return call.reject("Keychain delete failed (\(status)).") }
         UserDefaults.standard.set(false, forKey: Self.vaultKept)
         call.resolve()
     }

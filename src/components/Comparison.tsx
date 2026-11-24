@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { JSONContent } from '@tiptap/react'
 import { useCounted } from '../lib/counts'
-import { bringBack, compare, type Paragraph, type Part, type Run } from '../lib/compare'
+import { bringBack, compare, paragraphsIn, type Paragraph, type Part, type Run } from '../lib/compare'
 import { momentOf } from '../lib/time'
 
 /**
@@ -11,6 +11,9 @@ import { momentOf } from '../lib/time'
  * already makes readable (Comparison.browser.test checks every theme). A
  * changed or removed paragraph can be brought back on its own. In place of
  * History's list.
+ *
+ * `plain`, without Nib Plus: the earlier version as it was, to read and to
+ * restore whole, and Plus offered for the comparing and the bringing back.
  */
 export function Comparison({
   then,
@@ -20,6 +23,8 @@ export function Comparison({
   onRestore,
   onBringBack,
   readOnly,
+  plain = false,
+  onPlus,
 }: {
   then: JSONContent
   now: JSONContent
@@ -31,9 +36,12 @@ export function Comparison({
   onBringBack: (body: JSONContent) => void
   /** To be read and copied only: nothing here may change it. */
   readOnly?: boolean
+  plain?: boolean
+  /** Plus asked for, from `plain`. */
+  onPlus?: () => void
 }) {
-  useCounted(true, 'compare_drafts')
-  const parts = useMemo(() => compare(then, now), [then, now])
+  useCounted(!plain, 'compare_drafts')
+  const parts = useMemo(() => (plain ? [] : compare(then, now)), [plain, then, now])
   // The unchanged stretches opened, by their place among these parts: all
   // folded again once a paragraph brought back changes them.
   const [opened, setOpened] = useState<{ of: Part[]; open: number[] }>({ of: parts, open: [] })
@@ -74,17 +82,25 @@ export function Comparison({
       </div>
       <div className="px-4 pt-1 pb-3">
         <h2 className="text-[15px] font-semibold tracking-[-0.01em]">
-          {momentOf(at)} <span className="font-normal text-muted">→ Current</span>
+          {momentOf(at)}
+          {!plain && <span className="font-normal text-muted"> → Current</span>}
         </h2>
         {!readOnly && (
           <button onClick={onRestore} className="nib-tap mt-1.5 cursor-pointer text-[12px] text-muted hover:text-ink">
             Restore this whole version
           </button>
         )}
+        {plain && (
+          <button onClick={onPlus} className="nib-tap mt-1.5 flex w-full cursor-pointer justify-between gap-3 text-left text-[12px] text-muted hover:text-ink">
+            <span>Compare it with now, and bring back one paragraph</span>
+            <span className="shrink-0">Plus ›</span>
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-3 px-4 pb-6 text-[13.5px] leading-[1.55] phone:pb-24">
-        {!changes && <p className="text-[12px] text-muted">No changes to the words since then.</p>}
+        {plain && paragraphsIn(then).map((paragraph, index) => <Block key={index} paragraph={paragraph} />)}
+        {!plain && !changes && <p className="text-[12px] text-muted">No changes to the words since then.</p>}
         {parts.map((part, index) => {
           if (part.kind === 'same') {
             const shown = open.includes(index)

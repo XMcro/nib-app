@@ -6,7 +6,9 @@ import type { DailyGoal } from '../lib/goal'
 import { MAX_SPRINT_MINUTES, SPRINT_LENGTHS, type Sprint, type SprintDone } from '../lib/sprint'
 import { useLook } from '../lib/look'
 import { touchApp } from '../lib/platform'
+import { pageCount } from '../lib/fountain'
 import { countCharacters, countWords, describeLength } from '../lib/stats'
+import { screenplayKey } from './Screenplay'
 import { relativeTime } from '../lib/time'
 import { reasonAt, styleChecking, styleUnderlined, suggestions } from './styleCheck/plugin'
 
@@ -39,12 +41,15 @@ export function EditorStatus({
   goal,
   goals,
   readOnly,
+  screenplay = false,
 }: {
   editor: Editor
   item?: Item
   goal?: DailyGoal | null
   goals?: GoalControls
   readOnly?: boolean
+  /** A screenplay's length is its pages, about a minute each (lib/fountain pageCount). */
+  screenplay?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<'goal' | 'sprint' | null>(null)
@@ -60,8 +65,10 @@ export function EditorStatus({
       // A touch screen can't hover an underline, so its reason shows here
       // while the caret is in it.
       reason: touchApp ? reasonAt(editor.state, editor.state.selection.from) : null,
+      pages: screenplay ? pageCount(screenplayKey.getState(editor.state)?.lines ?? []) : null,
     }),
   })
+  const pages = watched?.pages ?? null
   const text = watched?.text
 
   // A palette request is new each time, even for the same form. App keeps the
@@ -101,7 +108,7 @@ export function EditorStatus({
   } else if (done) {
     line = `Sprint done · ${describeWords(done.written)} in ${done.minutes} min`
   } else {
-    line = target ? describeGoal(target, countWords(body), now) : describeLength(body)
+    line = target ? describeGoal(target, countWords(body), now) : pages !== null ? describePages(pages, countWords(body)) : describeLength(body)
     if (typeof watched?.count === 'number') line += ` · ${describeSuggestions(watched.count)}`
     if (goal) line += met ? ` · Goal met${days ? ` · ${days}` : ''}` : ` · ${goal.written.toLocaleString()} of ${goal.goal.toLocaleString()} today`
   }
@@ -125,6 +132,7 @@ export function EditorStatus({
       {open && (
         <div className="nib-float mb-2 min-w-[180px] origin-bottom-right rounded-md border border-line bg-paper p-3 text-[11px]">
           <dl>
+            {pages !== null && <Row label="Pages" value={pages.toLocaleString()} />}
             <Row label="Words" value={countWords(body).toLocaleString()} />
             <Row label="Characters" value={countCharacters(body).toLocaleString()} />
             {target && <Row label="Goal" value={describeGoal(target, countWords(body), now)} />}
@@ -367,4 +375,10 @@ function Row({ label, value }: { label: string; value: string }) {
       <dd className="whitespace-nowrap">{value}</dd>
     </div>
   )
+}
+
+/** A screenplay's length: its pages, then its words. */
+function describePages(pages: number, words: number): string {
+  if (words === 0) return 'Empty'
+  return `${pages.toLocaleString()} ${pages === 1 ? 'page' : 'pages'} · ${words.toLocaleString()} ${words === 1 ? 'word' : 'words'}`
 }

@@ -1,12 +1,14 @@
 import { strToU8, zipSync, type Zippable } from 'fflate'
 import type { Item } from '../db/db'
-import { fileNamed, printPdf, toHtml } from './documentExport'
+import { fileNamed, printPdf, screenplayPdf, toHtml } from './documentExport'
+import { scriptHtml } from './scriptExport'
+import { withoutNotes } from '../editor/NoteToSelf'
 import { withoutAboutIn } from './image'
 import { toMarkdown } from './markdown'
 import { mathFor } from './math'
 import { withOriginals } from './originals'
 import { coloursFor } from '../editor/codeColours'
-import { titleOf } from './text'
+import { isScreenplay, nameOf, toFountain } from './fountain'
 
 /** What several documents picked in the library export as (components/ExportDialog). */
 export type ManyFormat = 'md' | 'html' | 'pdf'
@@ -33,15 +35,23 @@ export async function zipOf(documents: Item[], format: ManyFormat, making: (whic
   }
   for (const [i, item] of documents.entries()) {
     making(i + 1, documents.length)
-    const first = fileNamed(titleOf(item.body), format)
+    // A screenplay goes with Markdown as its Fountain (lib/fountain), named for its title.
+    const script = format === 'md' && isScreenplay(item)
+    const extension = script ? 'fountain' : format
+    const first = fileNamed(nameOf(item), extension)
     let name = first
-    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${first.slice(0, -format.length - 1)} ${n}.${format}`
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${first.slice(0, -extension.length - 1)} ${n}.${extension}`
     taken.add(name.toLowerCase())
     if (format === 'md') {
-      files[name] = strToU8(toMarkdown(withoutAboutIn(item.body)))
+      files[name] = strToU8(script ? toFountain(item.body) : toMarkdown(withoutAboutIn(item.body)))
       continue
     }
     // Its pictures as their originals (lib/originals), a document at a time. Markdown keeps them as the note has them.
+    // A screenplay laid out as one (lib/scriptExport, lib/scriptPages), its notes to self left behind as from every export.
+    if (isScreenplay(item)) {
+      files[name] = format === 'pdf' ? await screenplayPdf(item.body, name) : strToU8(scriptHtml(withoutNotes(item.body), nameOf(item)))
+      continue
+    }
     const html = toHtml({ ...item, body: await withOriginals(item.body) })
     files[name] = format === 'pdf' ? await printPdf(html, name) : strToU8(html)
   }

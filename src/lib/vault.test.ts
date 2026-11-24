@@ -50,6 +50,27 @@ describe('the vault', () => {
     await expect(vault.seal('doc-2', body('x'))).rejects.toThrow('The vault is locked.')
   })
 
+  // The key takes half a second to make: shut in that time, the vault opened once it was made, and stayed open.
+  it('stays shut if it’s shut while it is being opened', async () => {
+    const locked = await lockedOne()
+    const opening = vault.openVault('harbour lights', locked)
+    vault.closeVault() // Nib left the screen, or Lock Nib covered it
+    await expect(opening).rejects.toThrow()
+    expect(vault.vaultOpen()).toBe(false)
+    expect(vault.lockedTitle('doc-1')).toBeUndefined()
+    await vault.openVault('harbour lights', locked)
+    expect(vault.vaultOpen()).toBe(true)
+  })
+
+  // The first record with a salt was the only one tried: damaged, the right passcode opened nothing.
+  it('opens with the right passcode though the first locked record is damaged', async () => {
+    const [good] = await lockedOne()
+    const damaged = { id: 'doc-0', vault: { salt: good.vault.salt, sealed: good.vault.sealed.replace(/.$/, (last) => (last === 'A' ? 'B' : 'A')) } }
+    await vault.openVault('harbour lights', [damaged, good])
+    expect(vault.lockedTitle('doc-1')).toBe('The ferry leaves at 07:40')
+    expect(vault.lockedTitle('doc-0')).toBeUndefined()
+  })
+
   // A copy of the library (a backup, the app's file, a Mac's storage) can be
   // guessed against offline, and a short passcode falls in moments.
   it('wants a passcode of at least eight characters for a new vault', async () => {

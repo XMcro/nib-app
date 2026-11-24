@@ -9,7 +9,7 @@ import type { SyncStatus } from './status'
 /** The inbox's part of a look (sync/session): asked for only when the server says posts wait, after the documents and the files, and never the reason sync fails. */
 
 vi.mock('./engine', () => ({ syncOnce: vi.fn(), expireHistory: vi.fn(async () => {}), resetSyncState: vi.fn(), SyncReset: class SyncReset extends Error {} }))
-vi.mock('./files', () => ({ syncFiles: vi.fn(async () => ({ full: false, more: false })), fetchFile: vi.fn() }))
+vi.mock('./files', () => ({ syncFiles: vi.fn(async () => ({ full: false, more: false })), fetchFile: vi.fn(), nameFiles: vi.fn(async () => 0) }))
 vi.mock('../lib/originals', () => ({ fetchOriginalsWith: vi.fn() }))
 vi.mock('./inbox', () => ({ takePosts: vi.fn() }))
 const server = vi.hoisted(() => ({ waiting: 0 as number | undefined, asked: 0 }))

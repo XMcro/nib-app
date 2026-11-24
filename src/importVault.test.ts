@@ -112,3 +112,23 @@ describe('importing an Obsidian vault', () => {
     expect(setImportReport).not.toHaveBeenCalled()
   })
 })
+
+describe('importing a screenplay', () => {
+  const fountain = () => new File(['INT. HOUSE - DAY\n\nMARA\nHello.\n'], 'House.fountain')
+
+  it('is laid out as one with Nib Plus', async () => {
+    await actions(true).importFiles([fountain()])
+    expect(setNotice).toHaveBeenLastCalledWith('Imported one page.')
+    const [stored] = await db.items.toArray()
+    expect(stored).toMatchObject({ kind: 'page', screenplay: true })
+  })
+
+  it('comes in as a page without it, its lines all there, and says so', async () => {
+    await actions(false).importFiles([fountain()])
+    const [stored] = await db.items.toArray()
+    expect(stored.kind).toBe('page')
+    expect(stored.screenplay).toBeUndefined()
+    expect(stored.body.content).toHaveLength(4)
+    expect(setImportReport).toHaveBeenCalledWith({ imported: ['page'], skipped: ['The screenplay layout, which comes with Nib Plus: the script’s lines are in as a page'] })
+  })
+})

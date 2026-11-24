@@ -132,6 +132,9 @@ type Compared = Paragraph & { tokens: Token[]; words: Map<string, number>; key: 
 const TEXTBLOCKS = new Set(['paragraph', 'heading', 'codeBlock', 'mathBlock', 'attachment'])
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' })
 
+/** A version's paragraphs as they are, to be read with nothing compared (components/Comparison's `plain`). */
+export const paragraphsIn = (doc: JSONContent): Paragraph[] => paragraphsOf(doc)
+
 function paragraphsOf(doc: JSONContent): Compared[] {
   const found: Compared[] = []
   const walk = (node: JSONContent, path: number[], within: string[]) => {

@@ -1,12 +1,12 @@
 import type { Item } from '../db/db'
 import { withoutAboutIn } from './image'
 import { toMarkdown } from './markdown'
-import { titleOf } from './text'
+import { nameOf } from './fountain'
 
 const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10)
 
 const entry = (item: Item) =>
-  [`### ${titleOf(item.body)}`, `*${isoDay(item.createdAt)}*`, toMarkdown(withoutAboutIn(item.body))]
+  [`### ${nameOf(item)}`, `*${isoDay(item.createdAt)}*`, toMarkdown(withoutAboutIn(item.body))]
     .filter(Boolean)
     .join('\n\n')
 

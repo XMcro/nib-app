@@ -39,6 +39,9 @@ import { useKeptEditor, type KeptAs } from './useKeptEditor'
 /** Where the caret sits vertically in focus mode, as a fraction of the pane. */
 const TYPEWRITER_ANCHOR = 0.4
 
+/** How long a picture's words can take to read before Nib says it's reading them: a readied Vision is quicker. */
+const READING_SAID_MS = 500
+
 function copyOut(view: EditorView, event: ClipboardEvent, sealed: boolean): boolean {
   const { selection } = view.state
   if (selection.empty) return false
@@ -92,6 +95,7 @@ export function Editor({
   readOnly = false,
   docKey,
   keptAs,
+  screenplay = false,
 }: {
   kind: Kind
   initialBody?: JSONContent
@@ -115,6 +119,8 @@ export function Editor({
   /** What its document is opened as (lib/useOpenDocument), and, as it's left for another, what its editor is kept as for the tab it stays in (editor/kept). */
   docKey?: string
   keptAs?: KeptAs
+  /** A page written as a screenplay (lib/fountain, editor/Screenplay). Read as it's made: a page that becomes one, or stops being one, is opened again. */
+  screenplay?: boolean
 }) {
   const page = kind === 'page'
 
@@ -134,8 +140,17 @@ export function Editor({
       const typed: TypedOut[] = []
       for (const file of list) {
         // A picture with words in it goes in as its words, to be written
-        // with; the notice offers the picture back.
+        // with; the notice offers the picture back. A read that takes a
+        // while (Vision not readied yet, lib/pictureText warmUp) says so,
+        // and says so if it found none, so the page doesn't look stuck.
+        let said = false
+        const slow = setTimeout(() => {
+          said = true
+          onNotice?.('Reading the words in the picture…')
+        }, READING_SAID_MS)
         const words = await wordsIn(file)
+        clearTimeout(slow)
+        if (said && !words) onNotice?.('Found no words in the picture, so it went in as a picture.')
         // TipTap defers destroy() by a tick (StrictMode), so `isDestroyed`
         // is still false after unmount. The editable is already out of the
         // document, and dispatching into it would either throw or call
@@ -229,7 +244,7 @@ export function Editor({
   // The same objects from one render to the next, the extensions and the props:
   // Tiptap compares them, and new ones have it reconfigure the view each time
   // App draws. So the props reach the rest through refs (`files`, `openLink`).
-  const made = useMemo(() => nibEditor(page), [page])
+  const made = useMemo(() => nibEditor(page, screenplay), [page, screenplay])
   const files = useRef(handleFiles)
   files.current = handleFiles
   const notice = useRef(onNotice)
@@ -237,7 +252,7 @@ export function Editor({
   const editorProps = useMemo<EditorOptions['editorProps']>(
     () => ({
       attributes: {
-        class: textClass(page),
+        class: textClass(page, screenplay),
         // On the Mac, macOS's inline predictions put provisional text into the
         // page that the editor doesn't know about: typing came out garbled, and
         // text deleted with ⌘A and Delete came back. MainViewController turns
@@ -268,7 +283,7 @@ export function Editor({
         return true
       },
     }),
-    [page],
+    [page, screenplay],
   )
 
   // Made once: the editor is remounted (keyed) whenever its document changes. Or not made, but the one kept for its tab, as it was left.
@@ -329,7 +344,8 @@ export function Editor({
 
   // `[[` lists notes to link to. On the live editor only, like the style check.
   // First, so its Return and arrow keys come before the editor's own.
-  useEditorPlugin(editor, (live) => linkPicker(live, () => self.current), linkPickerKey, { first: true })
+  // Not in a screenplay, where [[ starts one of Fountain's notes.
+  useEditorPlugin(editor, (live) => linkPicker(live, () => self.current), linkPickerKey, { first: true, when: !screenplay })
 
   // A page's headings fold their sections away, and a list's lines what is under them, on this device (fold.ts).
   useEditorPlugin(editor, () => fold(() => self.current), foldKey)
@@ -425,8 +441,8 @@ export function Editor({
         />
       )}
       {editor && page && !focus && look.outline && <OutlineRail editor={editor} />}
-      {editor && <EditorStatus editor={editor} item={item} goal={goal} goals={goals} readOnly={readOnly} />}
-      {editor && touchApp && <FormatBar editor={editor} page={page} />}
+      {editor && <EditorStatus editor={editor} item={item} goal={goal} goals={goals} readOnly={readOnly} screenplay={screenplay} />}
+      {editor && touchApp && <FormatBar editor={editor} page={page} screenplay={screenplay} />}
     </>
   )
 }

@@ -17,7 +17,10 @@ export function toMarkdown(doc: JSONContent): string {
 
 /** Longest run of backticks in `text`, so a fence can always outgrow it. */
 function backtickRun(text: string): number {
-  return Math.max(0, ...[...text.matchAll(/`+/g)].map((match) => match[0].length))
+  // One at a time: spread into Math.max, some 130,000 runs were more arguments than a call takes, and the export failed.
+  let longest = 0
+  for (const run of text.matchAll(/`+/g)) longest = Math.max(longest, run[0].length)
+  return longest
 }
 
 /**
@@ -186,7 +189,8 @@ function inline(node: JSONContent, hardBreak = '  \n'): string {
       // Code spans are literal — a backslash inside one would be shown, not read.
       const literal = marks.some((mark) => mark.type === 'code')
       let text = literal ? (child.text ?? '') : escapeText(child.text ?? '')
-      for (const mark of marks) {
+      // Code first, so it's innermost: bold or a link wrapped inside the backticks would be read as the code's own characters.
+      for (const mark of literal ? [...marks].sort((a, b) => Number(b.type === 'code') - Number(a.type === 'code')) : marks) {
         // Own keys only: a mark named `hasOwnProperty` found Object's, and threw.
         const wrap = Object.hasOwn(WRAP, mark.type ?? '') ? WRAP[mark.type!] : undefined
         if (wrap) text = wrap(text, mark.attrs)
@@ -205,6 +209,7 @@ const texOf = (node: JSONContent) => (node.content ?? []).map((child) => child.t
  * comes back a footnote rather than as stray text.
  */
 function footnote(text: string): string {
-  const escaped = text.replace(/[&<>"]/g, (char) => `&#${char.charCodeAt(0)};`)
+  // A line's end too: two in a row end the paragraph the footnote is in, and it came back as no footnote at all.
+  const escaped = text.replace(/[&<>"\r\n]/g, (char) => `&#${char.charCodeAt(0)};`)
   return `<sup data-footnote data-text="${escaped}"></sup>`
 }

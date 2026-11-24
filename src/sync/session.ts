@@ -3,13 +3,14 @@ import { db } from '../db/db'
 import { STAMPS_CHANGED } from '../lib/collection'
 import { FOLDERS_CHANGED } from '../lib/folderSettings'
 import { LOOKS_CHANGED } from '../lib/look'
+import { SUBMISSIONS_CHANGED } from '../lib/submissions'
 import { fetchOriginalsWith } from '../lib/originals'
 import { SERVER } from '../lib/server'
 import { notWrittenHere } from '../lib/writtenHere'
-import { httpApi, type Api } from './api'
+import { httpApi, SyncHttpError, type Api } from './api'
 import type { SyncKeys } from './crypto'
 import { expireHistory, SyncReset, syncOnce } from './engine'
-import { fetchFile, syncFiles } from './files'
+import { fetchFile, syncFiles, nameFiles } from './files'
 import { takePosts } from './inbox'
 import { describeError, type SyncStatus } from './status'
 
@@ -21,6 +22,8 @@ const INTERVAL_MS = 30_000
 const IDLE_MS = 5 * 60_000
 /** Away this long with a look in flight, the look is ended as Nib comes back (onVisible): what it was waiting on isn't coming. */
 const AWAY_MS = 60_000
+/** How long a request saying which files are used (Session `name`) waits for its answer. */
+const REPORT_ANSWER_MS = 60_000
 /** Coming back says so more than once, shown and then focused: said again this soon, it's the same coming back, and the one look. */
 const JUST_MS = 5000
 
@@ -56,6 +59,8 @@ export class Session {
   private release: (() => void) | undefined
   private keys: SyncKeys
   private api: Api
+  /** Saying which files are used, under way (`name`). */
+  private naming: Promise<unknown> | null = null
   private onStatus: (status: SyncStatus) => void
   private onApplied: (ids: string[], copies: number) => void
   private receipt: () => string | undefined
@@ -114,6 +119,7 @@ export class Session {
       window.addEventListener(STAMPS_CHANGED, this.onRecordChanged)
       window.addEventListener(FOLDERS_CHANGED, this.onRecordChanged)
       window.addEventListener(LOOKS_CHANGED, this.onRecordChanged)
+      window.addEventListener(SUBMISSIONS_CHANGED, this.onRecordChanged)
       if (this.manual()) this.onStatus({ state: 'manual' })
       else this.run()
     }
@@ -136,6 +142,7 @@ export class Session {
     window.removeEventListener(STAMPS_CHANGED, this.onRecordChanged)
     window.removeEventListener(FOLDERS_CHANGED, this.onRecordChanged)
     window.removeEventListener(LOOKS_CHANGED, this.onRecordChanged)
+    window.removeEventListener(SUBMISSIONS_CHANGED, this.onRecordChanged)
     this.release?.()
   }
 
@@ -154,7 +161,7 @@ export class Session {
   }
 
   /** A pack or a present opened here: sent at once, so another device opening Nib next has it opened too. */
-  /** The stamps, the folders' settings or the saved looks, changed here: none is in the database. */
+  /** The stamps, the folders' settings, the saved looks or the submissions, changed here: none is in the database. */
   private onRecordChanged = () => {
     this.quiet = 0
     this.nudge()
@@ -249,6 +256,30 @@ export class Session {
     }
   }
 
+  /**
+   * Once a day, which files this device's documents use, said to the server (sync/files `nameFiles`); and any of
+   * them it has lost, sent again with a look made for it. Beside the look, not within it: it reads every document
+   * and every past version, and within, the look showed as syncing and no other could start till it was done,
+   * what was just written waiting with it. By requests of its own, which a look ended as Nib comes back doesn't
+   * end; each is ended if it has no answer in REPORT_ANSWER_MS, or one that never answered (as when WebKit's
+   * networking is lost under Nib) left this under way for good, and nothing said again till Nib was opened afresh.
+   * Never the reason sync shows as failing (a server from before it listened, say).
+   */
+  private name() {
+    if (this.naming || this.stopped) return
+    const answered = () => {
+      const ending = new AbortController()
+      setTimeout(() => ending.abort(), REPORT_ANSWER_MS)
+      return ending.signal
+    }
+    this.naming = nameFiles(this.keys, httpApi(SERVER, this.keys, answered))
+      .then((lost) => {
+        if (lost) this.run()
+      })
+      .catch((error: unknown) => console.warn('Nib: could not tell the server which files are used', error))
+      .finally(() => (this.naming = null))
+  }
+
   private async pass(ended: AbortSignal) {
     this.onStatus({ state: 'syncing' })
     try {
@@ -283,6 +314,7 @@ export class Session {
         return { full: false, more: false }
       })
       if (files.more) this.again = true
+      this.name()
       // Posts waiting in the inbox, made into notes here and sent at once, with the next look. Nor these the reason.
       if (this.posts) {
         const made = await takePosts(this.keys, this.api, this.postsFolder()).catch((error: unknown) => {
@@ -315,6 +347,12 @@ export class Session {
       if (ended.aborted) {
         this.again = true
         return
+      }
+      // Lapsed, every look ends here: the server is still asked to let go of the history past what it keeps
+      // (worker/library `expire` takes that without Plus), which it otherwise never was again.
+      if (error instanceof SyncHttpError && error.status === 402) {
+        await expireHistory(this.api).catch((failed: unknown) => console.warn('Nib: could not let go of old history on the server', failed))
+        if (this.stopped) return
       }
       // Offline, or the server down: no need to ask it any more often.
       this.quiet += 1

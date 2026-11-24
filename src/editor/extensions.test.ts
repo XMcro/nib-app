@@ -190,6 +190,15 @@ describe('images from imported markup', () => {
  * `Node.fromJSON` copies `src` onto the node and `renderHTML` is what would
  * put it on an `<img>`. IndexedDB is not a trusted renderer input.
  */
+describe('a table read from HTML', () => {
+  // A pasted table reaches no filter: the cell reads its own spans as the filter would.
+  it('keeps a cell’s spans to what a table can be drawn with', () => {
+    const cells = (html: string) => generateJSON(html, nibExtensions(true)).content[0].content[0].content.map((cell: JSONContent) => [cell.type, cell.attrs?.colspan, cell.attrs?.rowspan])
+    expect(cells('<table><tr><th colspan="2">a</th><td rowspan="3">b</td></tr></table>')).toEqual([['tableHeader', 2, 1], ['tableCell', 1, 3]])
+    expect(cells('<table><tr><th colspan="10000000">a</th><td colspan="1e300" rowspan="999999999">b</td></tr></table>')).toEqual([['tableHeader', 1, 1], ['tableCell', 1, 1]])
+  })
+})
+
 describe('images from stored JSON', () => {
   const PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -210,6 +219,14 @@ describe('images from stored JSON', () => {
 
   it('still renders one of our own data URIs', () => {
     expect(rendered(PNG)).toContain(`src="${PNG}"`)
+  })
+
+  // Its width is read from the picture's own first bytes: one that isn't base64 through and through, which only a
+  // backup made by hand can hold, threw there, and its page didn't open.
+  it('draws a sketch whose picture can’t be read for its width, at the picture’s own', () => {
+    const sketch = (src: string) => generateHTML({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'image', attrs: { src, drawing: 'AAAA' } }] }] }, nibExtensions(false))
+    expect(sketch(PNG)).toContain('width')
+    expect(sketch('data:image/png;base64,A')).toContain('<img')
   })
 
   it.each([

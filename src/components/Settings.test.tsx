@@ -66,8 +66,8 @@ describe('Settings', () => {
   it('offers the named themes, a free one at once', async () => {
     const { onThemeChange } = setup({ theme: 'gruvbox-light' })
     await openPanel()
-    // The eleven named, and one's own.
-    expect(screen.getAllByRole('radio')).toHaveLength(12)
+    // The seventeen named (Winter waits for Christmas Day), and one's own.
+    expect(screen.getAllByRole('radio')).toHaveLength(18)
     expect(screen.getByRole('radio', { name: /Gruvbox Light/ }).getAttribute('aria-checked')).toBe('true')
     // None of Light, Dark and System is the choice.
     for (const mode of ['Light', 'Dark', 'System']) expect(screen.getByText(mode).getAttribute('aria-pressed')).toBe('false')
